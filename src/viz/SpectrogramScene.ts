@@ -1,6 +1,7 @@
 // SonicCube v0.4.0 - Three.js 스펙트로그램 씬 (Phase 3)
 // 씬/카메라/렌더러/OrbitControls + 서피스 메쉬 + 그리드/축.
 // v0.6.0: 패널 연동용 카메라 제어 API (Rotation X / Zoom / Perspective) + 양방향 동기화 (Phase 4)
+// v0.7.0: 재생 위치 플레이헤드(반투명 평면 + 바닥 라인) (Phase 5)
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { Spectrogram } from '../audio/stft';
@@ -18,6 +19,9 @@ const ORTHO_FRUSTUM = 150; // 정사영 수직 가시 범위(월드 단위, zoom
 // ISO(등각) 프리셋 각도
 const ISO_THETA_DEG = 45;
 const ISO_ROTX_DEG = 35;
+
+// v0.7.0: 플레이헤드 색(gold, axes COLOR_TIME과 동일 계열)
+const PLAYHEAD_COLOR = 0xfbbf24;
 
 export interface CameraState {
   rotationX: number; // 0..90 (지평선 기준 올려본 각)
@@ -39,6 +43,20 @@ export class SpectrogramScene {
   private resizeObserver: ResizeObserver;
   private isOrtho = false;
   private suppressChange = false;
+
+  // v0.7.0: 재생 플레이헤드
+  private playhead: THREE.Group;
+  private playheadDuration = 0; // 시간축 도메인(초) = 스펙트로그램 시간 길이
+  /** 매 프레임 현재 재생 위치(초)를 반환. null이면 플레이헤드 미갱신 */
+  playheadTimeProvider: (() => number) | null = null;
+
+  // v0.7.1: 지나온 구간 표시 (0=show, 1=fade, 2=hide). 서피스 셰이더 uniform으로 적용
+  private playedMode = 0;
+  private surfaceUniforms: {
+    uPlayheadX: { value: number };
+    uPlayedMode: { value: number };
+    uPlayedAlpha: { value: number };
+  } | null = null;
 
   /** 사용자 드래그 등으로 카메라가 바뀔 때 호출 (슬라이더 동기화용) */
   onCameraChange: ((state: CameraState) => void) | null = null;
@@ -82,6 +100,10 @@ export class SpectrogramScene {
 
     this.addGrid();
 
+    this.playhead = this.buildPlayhead();
+    this.playhead.visible = false;
+    this.scene.add(this.playhead);
+
     this.resizeObserver = new ResizeObserver(() => this.onResize());
     this.resizeObserver.observe(container);
 
@@ -110,6 +132,40 @@ export class SpectrogramScene {
     (grid.material as THREE.Material).transparent = true;
     grid.position.y = 0;
     this.scene.add(grid);
+  }
+
+  /** v0.7.0: 플레이헤드 = 반투명 평면(주파수×강도 면) + 바닥 라인. group.position.x로 이동 */
+  private buildPlayhead(): THREE.Group {
+    const { DEPTH, HEIGHT } = SURFACE_DIMENSIONS;
+    const group = new THREE.Group();
+
+    // 반투명 평면: 기본 XY평면(법선 +Z)을 Y축 90° 회전 → 법선 +X, 가로=주파수(Z)·세로=강도(Y)
+    const planeGeo = new THREE.PlaneGeometry(DEPTH, HEIGHT);
+    planeGeo.rotateY(Math.PI / 2);
+    const planeMat = new THREE.MeshBasicMaterial({
+      color: PLAYHEAD_COLOR,
+      transparent: true,
+      opacity: 0.16,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const plane = new THREE.Mesh(planeGeo, planeMat);
+    plane.position.y = HEIGHT / 2; // 0..HEIGHT 구간을 덮도록
+    group.add(plane);
+
+    // 바닥 라인: 주파수축(Z)을 따라가는 얇은 막대 (라인 두께 보장용 Box)
+    const barGeo = new THREE.BoxGeometry(0.6, 0.4, DEPTH);
+    const barMat = new THREE.MeshBasicMaterial({
+      color: PLAYHEAD_COLOR,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+    });
+    const bar = new THREE.Mesh(barGeo, barMat);
+    bar.position.y = 0.2; // 바닥(grid) 살짝 위
+    group.add(bar);
+
+    return group;
   }
 
   // ---- 카메라 제어 (Phase 4) ----------------------------------------------
@@ -201,6 +257,7 @@ export class SpectrogramScene {
       this.mesh.geometry.dispose();
       (this.mesh.material as THREE.Material).dispose();
       this.mesh = null;
+      this.surfaceUniforms = null;
     }
     if (this.axisGroup) {
       this.scene.remove(this.axisGroup);
@@ -208,7 +265,16 @@ export class SpectrogramScene {
       this.axisGroup = null;
       this.disposeAxes = null;
     }
-    if (!spec || spec.frames === 0) return;
+    if (!spec || spec.frames === 0) {
+      this.playheadDuration = 0;
+      this.playhead.visible = false;
+      return;
+    }
+
+    // v0.7.0: 플레이헤드 시간 도메인 = 서피스 시간축 길이, 위치 초기화 후 표시
+    this.playheadDuration = spec.frames * spec.timeStep;
+    this.playhead.position.x = -SURFACE_DIMENSIONS.WIDTH / 2;
+    this.playhead.visible = true;
 
     const { geometry } = buildSpectrogramGeometry(spec);
     const material = new THREE.MeshStandardMaterial({
@@ -217,7 +283,36 @@ export class SpectrogramScene {
       roughness: 0.6,
       metalness: 0.1,
       flatShading: false,
+      transparent: true, // v0.7.1: 지나온 구간 fade(알파) 처리용
     });
+    // v0.7.1: 플레이헤드 X 기준으로 지나온 구간을 반투명/숨김 처리하는 셰이더 주입
+    const uniforms = {
+      uPlayheadX: { value: -SURFACE_DIMENSIONS.WIDTH / 2 },
+      uPlayedMode: { value: this.playedMode },
+      uPlayedAlpha: { value: 0.12 },
+    };
+    material.onBeforeCompile = (shader) => {
+      shader.uniforms.uPlayheadX = uniforms.uPlayheadX;
+      shader.uniforms.uPlayedMode = uniforms.uPlayedMode;
+      shader.uniforms.uPlayedAlpha = uniforms.uPlayedAlpha;
+      shader.vertexShader =
+        'varying float vSurfaceX;\n' +
+        shader.vertexShader.replace(
+          '#include <begin_vertex>',
+          '#include <begin_vertex>\n  vSurfaceX = position.x;',
+        );
+      shader.fragmentShader =
+        'uniform float uPlayheadX;\nuniform int uPlayedMode;\nuniform float uPlayedAlpha;\nvarying float vSurfaceX;\n' +
+        shader.fragmentShader.replace(
+          '#include <dithering_fragment>',
+          `#include <dithering_fragment>
+  if (uPlayedMode > 0 && vSurfaceX < uPlayheadX) {
+    if (uPlayedMode == 2) discard;
+    gl_FragColor.a *= uPlayedAlpha;
+  }`,
+        );
+    };
+    this.surfaceUniforms = uniforms;
     this.mesh = new THREE.Mesh(geometry, material);
     this.scene.add(this.mesh);
 
@@ -249,8 +344,26 @@ export class SpectrogramScene {
   private animate = () => {
     this.frameId = requestAnimationFrame(this.animate);
     this.controls.update();
+    this.updatePlayhead();
     this.renderer.render(this.scene, this.activeCamera);
   };
+
+  /** v0.7.0: 현재 재생 위치를 시간축 X 좌표로 변환해 플레이헤드 이동 */
+  private updatePlayhead() {
+    if (!this.playhead.visible || !this.playheadTimeProvider || this.playheadDuration <= 0) return;
+    const t = this.playheadTimeProvider();
+    const ratio = THREE.MathUtils.clamp(t / this.playheadDuration, 0, 1);
+    const x = (ratio - 0.5) * SURFACE_DIMENSIONS.WIDTH;
+    this.playhead.position.x = x;
+    // v0.7.1: 지나온 구간 셰이더에 플레이헤드 X 전달
+    if (this.surfaceUniforms) this.surfaceUniforms.uPlayheadX.value = x;
+  }
+
+  /** v0.7.1: 지나온 구간 표시 방식 (0=show, 1=fade, 2=hide) */
+  setPlayedMode(mode: number) {
+    this.playedMode = mode;
+    if (this.surfaceUniforms) this.surfaceUniforms.uPlayedMode.value = mode;
+  }
 
   dispose() {
     cancelAnimationFrame(this.frameId);

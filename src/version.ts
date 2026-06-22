@@ -17,7 +17,11 @@
  *  - v0.5.2 : 축 이름을 축 끝으로 이동·눈금과 동일 폰트, 주파수축 방향 재반전
  *  - v0.5.3 : TIME 축을 0Hz 원점 모서리(z=-DEPTH/2)로 이동 — 세 축이 원점에서 교차
  *  - v0.6.0 : Phase 4 UI 패널 연동 - Rotation X/Zoom/Perspective(ISO·ORTHO·3D) ↔ 카메라 양방향 동기화
+ *  - v0.6.1 : 버그수정 - 디코딩 시 하드웨어 레이트로 리샘플링되어 PC마다 주파수축 상한이 달라지던 문제(원본 레이트로 디코드)
+ *  - v0.7.0 : Phase 5 재생·트랜스포트 동기화 (재생/일시정지/seek/볼륨/반복, 타임라인 스크러버, 3D 플레이헤드)
+ *  - v0.7.1 : 기능개선 - 플레이헤드가 지나온 구간 표시 방식(Played Region: SHOW/FADE/HIDE) 옵션 추가
+ *  - v0.8.0 : Phase 6 Electron 패키징 (electron-builder, Windows NSIS 설치파일, 메인/프리로드 프로세스)
  */
 export const APP_NAME = 'SonicCube';
-export const APP_VERSION = '0.6.0';
+export const APP_VERSION = '0.8.0';
 export const APP_VERSION_LABEL = `v${APP_VERSION}`;

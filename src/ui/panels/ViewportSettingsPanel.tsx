@@ -1,10 +1,17 @@
 // SonicCube v0.1.0 - 뷰포트 설정 패널 (슬라이더는 store와 연동, 3D 반영은 Phase 4)
-import { useAppStore, type Perspective } from '../../store/appStore';
+// v0.7.1: 지나온 구간(Played Region) 표시 방식 토글 추가
+import { useAppStore, type Perspective, type PlayedRegionMode } from '../../store/appStore';
 
 const PERSPECTIVES: { id: Perspective; label: string }[] = [
   { id: 'iso', label: 'ISO' },
   { id: 'ortho', label: 'ORTHO' },
   { id: '3d', label: '3D' },
+];
+
+const PLAYED_REGIONS: { id: PlayedRegionMode; label: string }[] = [
+  { id: 'show', label: 'SHOW' },
+  { id: 'fade', label: 'FADE' },
+  { id: 'hide', label: 'HIDE' },
 ];
 
 function Slider({
@@ -44,7 +51,8 @@ function Slider({
 }
 
 export default function ViewportSettingsPanel() {
-  const { rotationX, zoom, perspective, setRotationX, setZoom, setPerspective, requestViewReset } = useAppStore();
+  const { rotationX, zoom, perspective, setRotationX, setZoom, setPerspective, requestViewReset, playedRegion, setPlayedRegion } =
+    useAppStore();
   return (
     <div className="glass-panel rounded-lg p-4">
       <p className="font-label-mono-sm text-label-mono-sm text-primary uppercase tracking-widest mb-3">
@@ -83,6 +91,26 @@ export default function ViewportSettingsPanel() {
                 }`}
               >
                 {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* v0.7.1: 지나온 구간 표시 방식 */}
+        <div>
+          <span className="font-label-mono-sm text-label-mono-sm text-on-surface-variant uppercase">Played Region</span>
+          <div className="grid grid-cols-3 gap-1 mt-1">
+            {PLAYED_REGIONS.map((r) => (
+              <button
+                key={r.id}
+                onClick={() => setPlayedRegion(r.id)}
+                className={`font-label-mono-sm text-label-mono-sm py-1 rounded transition-colors ${
+                  playedRegion === r.id
+                    ? 'bg-primary text-on-primary font-bold'
+                    : 'bg-secondary/20 text-secondary hover:bg-secondary/30'
+                }`}
+              >
+                {r.label}
               </button>
             ))}
           </div>

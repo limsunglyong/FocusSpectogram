@@ -52,6 +52,29 @@ export function getAudioContext(): AudioContext {
   return sharedContext;
 }
 
+// v0.6.1: 가능하면 원본 샘플레이트로 디코드해 리샘플링을 막는다.
+// 공유 AudioContext.decodeAudioData는 하드웨어 기본 레이트로 리샘플링하므로
+// PC마다 나이퀴스트(주파수축 상한)가 달라진다(예: 48kHz 원본이 96kHz로 업샘플 → 축 0~48kHz).
+// 원본 레이트를 알면 그 레이트의 OfflineAudioContext로 디코드해 어느 PC에서나 0~원본나이퀴스트로 통일한다.
+async function decodeToBuffer(arrayBuffer: ArrayBuffer, originalSampleRate: number | null): Promise<AudioBuffer> {
+  const sharedRate = getAudioContext().sampleRate;
+  if (
+    originalSampleRate != null &&
+    originalSampleRate !== sharedRate &&
+    typeof OfflineAudioContext !== 'undefined'
+  ) {
+    try {
+      const offline = new OfflineAudioContext(1, 1, originalSampleRate);
+      // decodeAudioData는 전달한 ArrayBuffer를 detach하므로 사본으로 시도 → 실패 시 원본으로 폴백 가능
+      return await offline.decodeAudioData(arrayBuffer.slice(0));
+    } catch {
+      // 폴백: 공유 AudioContext로 디코드 (아래)
+    }
+  }
+  // decodeAudioData는 일부 브라우저에서 Promise 미반환 → Promise 래핑으로 통일
+  return await getAudioContext().decodeAudioData(arrayBuffer);
+}
+
 function extOf(name: string): string {
   const dot = name.lastIndexOf('.');
   return dot >= 0 ? name.slice(dot).toLowerCase() : '';
@@ -164,11 +187,9 @@ export async function decodeAudioFile(file: File): Promise<DecodedAudio> {
   // v0.2.1: 원본 샘플레이트는 decodeAudioData가 ArrayBuffer를 detach하기 전에 파싱한다.
   const originalSampleRate = parseOriginalSampleRate(arrayBuffer, ext);
 
-  const ctx = getAudioContext();
   let buffer: AudioBuffer;
   try {
-    // decodeAudioData는 일부 브라우저에서 Promise 미반환 → Promise 래핑으로 통일
-    buffer = await ctx.decodeAudioData(arrayBuffer);
+    buffer = await decodeToBuffer(arrayBuffer, originalSampleRate);
   } catch {
     throw new AudioDecodeError('오디오를 디코딩할 수 없습니다. 손상되었거나 브라우저가 지원하지 않는 형식일 수 있습니다.');
   }
