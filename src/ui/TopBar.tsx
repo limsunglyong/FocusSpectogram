@@ -3,6 +3,7 @@
 import { APP_NAME } from '../version';
 import { useAppStore } from '../store/appStore';
 import { openAudioFilePicker } from '../audio/filePicker';
+import logoUrl from '../../focustone_logo.svg?url';
 
 const NAV = ['Dashboard', 'Analysis', 'Presets', 'Archive'];
 
@@ -18,7 +19,7 @@ export default function TopBar() {
   return (
     <header className="bg-surface-container/10 backdrop-blur-xl border-b border-primary/10 flex justify-between items-center px-margin-desktop w-full h-16 z-50 shrink-0">
       <div className="flex items-center gap-8">
-        <h1 className="font-headline-lg text-headline-lg font-bold text-primary tracking-tighter">{APP_NAME}</h1>
+        <h1 className="font-headline-lg text-headline-lg text-primary whitespace-nowrap">{APP_NAME}</h1>
         <nav className="hidden md:flex items-center gap-6">
           {NAV.map((item, i) => (
             <a
@@ -50,6 +51,11 @@ export default function TopBar() {
           <span className="material-symbols-outlined text-on-surface-variant cursor-pointer hover:text-primary transition-colors">settings</span>
           <span className="material-symbols-outlined text-on-surface-variant cursor-pointer hover:text-primary transition-colors">help</span>
         </div>
+        <img
+          src={logoUrl}
+          alt="FocusTone logo"
+          className="h-10 w-10 shrink-0 object-contain"
+        />
       </div>
     </header>
   );

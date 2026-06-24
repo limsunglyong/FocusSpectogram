@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" xmlns:bx="https://boxy-svg.com">
+  <defs>
+    <style bx:fonts="Montserrat">@import url(https://fonts.googleapis.com/css2?family=Montserrat%3Aital%2Cwght%400%2C100..900%3B1%2C100..900&amp;display=swap);</style>
+    <filter id="spot-light-filter-0" bx:preset="spot-light 1 0.5 0.5 1 0.5 0.5 0 26 #ffffff 42 2 0.29 0" primitiveUnits="objectBoundingBox" color-interpolation-filters="sRGB" x="-50%" y="-50%" width="200%" height="200%">
+      <feSpecularLighting result="specular-lighting" lighting-color="#ffffff" specularConstant="2" specularExponent="42">
+        <feSpotLight x="0.5" y="0.5" z="1" limitingConeAngle="26" pointsAtX="0.5" pointsAtY="0.5" pointsAtZ="0"/>
+      </feSpecularLighting>
+      <feDiffuseLighting result="diffuse-lighting" lighting-color="#ffffff" diffuseConstant="0.29">
+        <feSpotLight x="0.5" y="0.5" z="1" limitingConeAngle="26" pointsAtX="0.5" pointsAtY="0.5" pointsAtZ="0"/>
+      </feDiffuseLighting>
+      <feMerge result="lighting">
+        <feMergeNode in="diffuse-lighting"/>
+        <feMergeNode in="specular-lighting"/>
+      </feMerge>
+      <feComposite in="SourceGraphic" in2="lighting" operator="arithmetic" k1="1" k2="0" k3="0" k4="0"/>
+    </filter>
+    <filter id="point-light-filter-0" bx:preset="point-light 1 0.5 0.5 0.5 90 0.74 0.59 0.18 #ffffff" primitiveUnits="objectBoundingBox" color-interpolation-filters="sRGB" x="-50%" y="-50%" width="200%" height="200%">
+      <feSpecularLighting result="specular-lighting" lighting-color="#ffffff" specularConstant="0.74" specularExponent="90">
+        <fePointLight x="0.5" y="0.5" z="0.5"/>
+      </feSpecularLighting>
+      <feDiffuseLighting result="diffuse-lighting" lighting-color="#ffffff" diffuseConstant="0.59">
+        <fePointLight x="0.5" y="0.5" z="0.5"/>
+      </feDiffuseLighting>
+      <feMerge result="lighting">
+        <feMergeNode in="diffuse-lighting"/>
+        <feMergeNode in="specular-lighting"/>
+      </feMerge>
+      <feComposite in="SourceGraphic" in2="lighting" operator="arithmetic" k1="1" k2="0.18" k3="0" k4="0"/>
+    </filter>
+  </defs>
+  <circle cx="256" cy="256" r="240" fill="#2C2C2E" style="filter: url(&quot;#spot-light-filter-0&quot;);"/>
+  <text style="fill: rgb(229, 229, 231); font-family: Montserrat; font-size: 38px; font-weight: 624; letter-spacing: 2px; white-space: pre; filter: url(&quot;#point-light-filter-0&quot;);" x="123.159" y="414.59">FOCUSTONE</text>
+  <g transform="matrix(1, 0, 0, 1, 0, 49.5)">
+    <rect x="156" y="72" width="200" height="40" style="fill: rgb(216, 216, 216); stroke-width: 1; stroke: rgba(0, 0, 0, 0);"/>
+    <rect x="236" y="111" width="40" height="60" style="fill: rgb(216, 216, 216); stroke-width: 1; stroke: rgba(0, 0, 0, 0);"/>
+    <rect x="156" y="131" width="40" height="176" style="fill: rgb(216, 216, 216); stroke-width: 1; stroke: rgba(0, 0, 0, 0);"/>
+    <rect x="195.383" y="190" width="118" height="40" style="fill: rgb(216, 216, 216); stroke-width: 1; stroke: rgba(0, 0, 0, 0);"/>
+    <rect x="236" y="247" width="40" height="60" style="fill: rgb(216, 216, 216); stroke-width: 1; stroke: rgba(0, 0, 0, 0);"/>
+  </g>
+</svg>

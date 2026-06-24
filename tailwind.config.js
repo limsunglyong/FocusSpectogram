@@ -68,8 +68,8 @@ export default {
         'panel-gap': '1px',
       },
       fontFamily: {
-        'headline-lg': ['Geist', 'sans-serif'],
-        'headline-md': ['Geist', 'sans-serif'],
+        'headline-lg': ['Moirai One', 'Geist', 'sans-serif'],
+        'headline-md': ['Moirai One', 'Geist', 'sans-serif'],
         'body-lg': ['Geist', 'sans-serif'],
         'body-md': ['Geist', 'sans-serif'],
         'label-mono-lg': ['JetBrains Mono', 'monospace'],
@@ -78,8 +78,8 @@ export default {
       },
       fontSize: {
         'label-mono-lg': ['14px', { lineHeight: '20px', letterSpacing: '0.02em', fontWeight: '500' }],
-        'headline-lg': ['32px', { lineHeight: '40px', letterSpacing: '-0.02em', fontWeight: '700' }],
-        'headline-md': ['24px', { lineHeight: '32px', letterSpacing: '-0.01em', fontWeight: '600' }],
+        'headline-lg': ['30px', { lineHeight: '40px', letterSpacing: '0em', fontWeight: '400' }],
+        'headline-md': ['24px', { lineHeight: '32px', letterSpacing: '0em', fontWeight: '400' }],
         'label-mono-sm': ['11px', { lineHeight: '16px', letterSpacing: '0.05em', fontWeight: '500' }],
         'body-lg': ['16px', { lineHeight: '24px', letterSpacing: '0em', fontWeight: '400' }],
         'body-md': ['14px', { lineHeight: '20px', letterSpacing: '0em', fontWeight: '400' }],

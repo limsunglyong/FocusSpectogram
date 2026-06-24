@@ -1,5 +1,5 @@
 /**
- * SonicCube - 전역 앱 버전 상수
+ * FocusDAW - Sonic Analysis - 전역 앱 버전 상수
  *
  * 버전 규칙: v{Major}.{Minor}.{Patch}  (참고: 앱개발.md 지침)
  *  - Major : 사용자 선택 사항
@@ -26,6 +26,6 @@
  *  - v0.9.1 : 버그수정 - FLAC 샘플레이트가 MP3 헤더로 오인되어 11.0kHz로 표시될 수 있던 문제
  *  - v0.10.0 : Noise Print 분석 - 수동 노이즈 구간 캡처와 후보 영역 도식화
  */
-export const APP_NAME = 'SonicCube';
+export const APP_NAME = 'FocusDAW - Sonic Analysis';
 export const APP_VERSION = '0.10.0';
 export const APP_VERSION_LABEL = `v${APP_VERSION}`;

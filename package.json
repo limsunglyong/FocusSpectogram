@@ -1,9 +1,9 @@
 {
-  "name": "soniccube",
+  "name": "focusdaw-sonic-analysis",
   "private": true,
   "version": "0.10.0",
-  "description": "SonicCube - 3D Audio Spectrogram Viewer",
-  "author": "SonicCube",
+  "description": "FocusDAW - Sonic Analysis",
+  "author": "FocusDAW",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -37,8 +37,8 @@
     "wait-on": "^8.0.1"
   },
   "build": {
-    "appId": "com.soniccube.app",
-    "productName": "SonicCube",
+    "appId": "com.focusdaw.sonicanalysis",
+    "productName": "FocusDAW - Sonic Analysis",
     "directories": {
       "output": "release"
     },
