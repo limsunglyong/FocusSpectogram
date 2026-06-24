@@ -60,6 +60,9 @@ export interface SurfaceBuildResult {
 export interface SurfaceBuildOptions {
   lufsLevel?: number;
   highlightAboveLufs?: boolean;
+  noiseProfileDb?: Float32Array | null;
+  highlightNoise?: boolean;
+  noiseThresholdDb?: number;
 }
 
 /** 스펙트로그램으로부터 정점 변위 + 정점 색상 서피스 지오메트리를 생성 */
@@ -70,6 +73,9 @@ export function buildSpectrogramGeometry(spec: Spectrogram, options: SurfaceBuil
   const hMax = Math.max(spec.maxDb, hMin + 1);
   const hRange = hMax - hMin;
   const shouldHighlight = options.highlightAboveLufs && typeof options.lufsLevel === 'number';
+  const shouldHighlightNoise = options.highlightNoise && options.noiseProfileDb && options.noiseProfileDb.length > 0;
+  const noiseThreshold = options.noiseThresholdDb ?? 6;
+  const rowScale = spec.bins / rows;
 
   const vertexCount = cols * rows;
   const positions = new Float32Array(vertexCount * 3);
@@ -88,7 +94,22 @@ export function buildSpectrogramGeometry(spec: Spectrogram, options: SurfaceBuil
       positions[idx * 3 + 1] = y;
       positions[idx * 3 + 2] = z;
 
-      if (shouldHighlight && db[idx] >= options.lufsLevel!) {
+      let noiseMatch = false;
+      if (shouldHighlightNoise) {
+        const b0 = Math.floor(r * rowScale);
+        const b1 = Math.max(b0 + 1, Math.floor((r + 1) * rowScale));
+        let profile = -Infinity;
+        for (let b = b0; b < b1 && b < options.noiseProfileDb!.length; b++) {
+          if (options.noiseProfileDb![b] > profile) profile = options.noiseProfileDb![b];
+        }
+        noiseMatch = Number.isFinite(profile) && Math.abs(db[idx] - profile) <= noiseThreshold;
+      }
+
+      if (noiseMatch) {
+        colors[idx * 3] = 0.72;
+        colors[idx * 3 + 1] = 0.34;
+        colors[idx * 3 + 2] = 1;
+      } else if (shouldHighlight && db[idx] >= options.lufsLevel!) {
         colors[idx * 3] = 1;
         colors[idx * 3 + 1] = 0.08;
         colors[idx * 3 + 2] = 0.06;

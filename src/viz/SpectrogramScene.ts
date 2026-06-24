@@ -4,6 +4,7 @@
 // v0.7.0: 재생 위치 플레이헤드(반투명 평면 + 바닥 라인) (Phase 5)
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { EQ_FREQ_MAX, EQ_FREQ_MIN, EQ_GAIN_RANGE, EQ_Q_MAX, EQ_Q_MIN, type EqBand } from '../audio/eq';
 import type { Spectrogram } from '../audio/stft';
 import { buildSpectrogramGeometry, HEIGHT_FLOOR_DB, SURFACE_DIMENSIONS } from './surface';
 import { buildAxes } from './axes';
@@ -29,6 +30,9 @@ const EQ_COLOR = 0x34d399;
 const EQ_ZERO_COLOR = 0x0e8a6e; // 0dB 기준선(어두운 emerald)
 const EQ_DB_RANGE = 18; // 곡선 Y 매핑 ± dB
 const EQ_CURVE_POINTS = 160; // 주파수축 샘플 수
+const EQ_HANDLE_COLOR = 0xfbbf24;
+const EQ_HANDLE_ACTIVE_COLOR = 0xffffff;
+const EQ_HANDLE_HOVER_COLOR = 0xfff3bf;
 const LUFS_COLOR = 0xff1f1f;
 
 export interface CameraState {
@@ -69,11 +73,20 @@ export class SpectrogramScene {
   // v0.9.0: EQ 오버레이 곡선 (서피스 앞면 time=0 모서리, 주파수축 Z × gain dB)
   private eqLine!: THREE.Line;
   private eqZeroLine!: THREE.Line;
+  private eqHandleGroup = new THREE.Group();
+  private eqHandleMeshes = new Map<string, THREE.Mesh>();
+  private eqBands: EqBand[] = [];
+  private raycaster = new THREE.Raycaster();
+  private pointer = new THREE.Vector2();
+  private dragEqBandId: string | null = null;
+  private hoverEqBandId: string | null = null;
   private eqVisible = false;
   private eqMaxFreq = 0; // 표시 주파수 상한(Nyquist, Hz)
   private eqFreqs: Float32Array | null = null; // 샘플 주파수(Hz)
   /** 주파수 배열(Hz) → 합성 EQ 응답(dB)을 반환. null이면 곡선 미갱신 */
   eqResponseProvider: ((freqHz: Float32Array) => Float32Array) | null = null;
+  /** v0.10.0: EQ 핸들 드래그 시 band patch를 앱 store로 전달 */
+  onEqBandChange: ((id: string, patch: Partial<EqBand>) => void) | null = null;
 
   // v0.7.1: 지나온 구간 표시 (0=show, 1=fade, 2=hide). 서피스 셰이더 uniform으로 적용
   private playedMode = 0;
@@ -84,6 +97,9 @@ export class SpectrogramScene {
   } | null = null;
   private lufsLevel = -14;
   private showLufsPlane = false;
+  private noiseProfileDb: Float32Array | null = null;
+  private noiseThresholdDb = 6;
+  private showNoisePrint = false;
 
   /** 사용자 드래그 등으로 카메라가 바뀔 때 호출 (슬라이더 동기화용) */
   onCameraChange: ((state: CameraState) => void) | null = null;
@@ -132,6 +148,10 @@ export class SpectrogramScene {
     this.scene.add(this.playhead);
 
     this.buildEqOverlay();
+    this.renderer.domElement.addEventListener('pointerdown', this.onPointerDown);
+    this.renderer.domElement.addEventListener('wheel', this.onWheel, { passive: false, capture: true });
+    window.addEventListener('pointermove', this.onPointerMove);
+    window.addEventListener('pointerup', this.onPointerUp);
 
     this.resizeObserver = new ResizeObserver(() => this.onResize());
     this.resizeObserver.observe(container);
@@ -254,6 +274,10 @@ export class SpectrogramScene {
     this.eqLine.frustumCulled = false;
     this.eqLine.visible = false;
     this.scene.add(this.eqLine);
+
+    this.eqHandleGroup.visible = false;
+    this.eqHandleGroup.renderOrder = 1000;
+    this.scene.add(this.eqHandleGroup);
   }
 
   /** EQ gain(dB) → 앞면 Y. 0dB=HEIGHT/2 중심, ±EQ_DB_RANGE를 ±HEIGHT/2로 매핑 */
@@ -269,13 +293,30 @@ export class SpectrogramScene {
     return (THREE.MathUtils.clamp(ratio, 0, 1) - 0.5) * SURFACE_DIMENSIONS.DEPTH;
   }
 
+  private zToFreq(z: number): number {
+    const ratio = THREE.MathUtils.clamp(z / SURFACE_DIMENSIONS.DEPTH + 0.5, 0, 1);
+    return ratio * this.eqMaxFreq;
+  }
+
+  private yToEqGain(y: number): number {
+    const { HEIGHT } = SURFACE_DIMENSIONS;
+    const normalized = (THREE.MathUtils.clamp(y, 0, HEIGHT) - HEIGHT / 2) / (HEIGHT / 2);
+    return THREE.MathUtils.clamp(normalized * EQ_DB_RANGE, -EQ_GAIN_RANGE, EQ_GAIN_RANGE);
+  }
+
   /** v0.9.0: EQ 오버레이 표시 토글. 표시 시 곡선 즉시 갱신 */
   setEqVisible(visible: boolean) {
     this.eqVisible = visible;
     const show = visible && this.eqMaxFreq > 0;
     this.eqLine.visible = show;
     this.eqZeroLine.visible = show;
+    this.eqHandleGroup.visible = show;
     if (show) this.refreshEqCurve();
+  }
+
+  setEqBands(bands: EqBand[]) {
+    this.eqBands = bands.map((b) => ({ ...b }));
+    this.syncEqHandles();
   }
 
   /** v0.9.0: 현재 밴드 응답으로 곡선 정점 재계산 (밴드 변경/표시 시 호출) */
@@ -291,7 +332,144 @@ export class SpectrogramScene {
       out[i * 3 + 2] = this.freqToZ(this.eqFreqs[i]);
     }
     attr.needsUpdate = true;
+    this.syncEqHandles();
   }
+
+  private syncEqHandles() {
+    const stale = new Set(this.eqHandleMeshes.keys());
+    const xFront = -SURFACE_DIMENSIONS.WIDTH / 2;
+    const freqMax = this.currentEqFreqMax();
+
+    for (const band of this.eqBands) {
+      stale.delete(band.id);
+      let mesh = this.eqHandleMeshes.get(band.id);
+      if (!mesh) {
+        const geometry = new THREE.SphereGeometry(1.05, 18, 18);
+        const material = new THREE.MeshBasicMaterial({
+          color: EQ_HANDLE_COLOR,
+          transparent: true,
+          opacity: 0.96,
+          depthTest: false,
+        });
+        mesh = new THREE.Mesh(geometry, material);
+        mesh.userData.eqBandId = band.id;
+        mesh.renderOrder = 1000;
+        mesh.frustumCulled = false;
+        this.eqHandleMeshes.set(band.id, mesh);
+        this.eqHandleGroup.add(mesh);
+      }
+      mesh.position.set(
+        xFront,
+        this.eqGainToY(band.gain),
+        this.freqToZ(THREE.MathUtils.clamp(band.frequency, EQ_FREQ_MIN, freqMax)),
+      );
+    }
+
+    for (const id of stale) {
+      const mesh = this.eqHandleMeshes.get(id);
+      if (!mesh) continue;
+      this.eqHandleGroup.remove(mesh);
+      mesh.geometry.dispose();
+      (mesh.material as THREE.Material).dispose();
+      this.eqHandleMeshes.delete(id);
+    }
+  }
+
+  private currentEqFreqMax(): number {
+    return Math.max(EQ_FREQ_MIN, Math.min(EQ_FREQ_MAX, this.eqMaxFreq || EQ_FREQ_MAX));
+  }
+
+  private updatePointer(clientX: number, clientY: number) {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+  }
+
+  private pickEqHandle(clientX: number, clientY: number): THREE.Mesh | null {
+    if (!this.eqHandleGroup.visible || this.eqHandleMeshes.size === 0) return null;
+    this.updatePointer(clientX, clientY);
+    this.raycaster.setFromCamera(this.pointer, this.activeCamera);
+    const hits = this.raycaster.intersectObjects([...this.eqHandleMeshes.values()], false);
+    return (hits[0]?.object as THREE.Mesh | undefined) ?? null;
+  }
+
+  private bandById(id: string | null): EqBand | null {
+    if (!id) return null;
+    return this.eqBands.find((band) => band.id === id) ?? null;
+  }
+
+  private setHandleColor(id: string | null, color: number) {
+    if (!id) return;
+    const mesh = this.eqHandleMeshes.get(id);
+    if (mesh) (mesh.material as THREE.MeshBasicMaterial).color.setHex(color);
+  }
+
+  private updateEqHover(clientX: number, clientY: number) {
+    if (this.dragEqBandId) return;
+    const hit = this.pickEqHandle(clientX, clientY);
+    const id = hit?.userData.eqBandId as string | undefined;
+    const next = id ?? null;
+    if (next === this.hoverEqBandId) return;
+    this.setHandleColor(this.hoverEqBandId, EQ_HANDLE_COLOR);
+    this.hoverEqBandId = next;
+    this.setHandleColor(this.hoverEqBandId, EQ_HANDLE_HOVER_COLOR);
+    this.renderer.domElement.style.cursor = next ? 'grab' : '';
+  }
+
+  private onPointerDown = (event: PointerEvent) => {
+    const hit = this.pickEqHandle(event.clientX, event.clientY);
+    const id = hit?.userData.eqBandId as string | undefined;
+    if (!hit || !id) return;
+    event.preventDefault();
+    this.dragEqBandId = id;
+    this.controls.enabled = false;
+    this.renderer.domElement.style.cursor = 'grabbing';
+    this.setHandleColor(id, EQ_HANDLE_ACTIVE_COLOR);
+  };
+
+  private onPointerMove = (event: PointerEvent) => {
+    if (!this.dragEqBandId) {
+      this.updateEqHover(event.clientX, event.clientY);
+      return;
+    }
+    if (!this.dragEqBandId) return;
+    this.updatePointer(event.clientX, event.clientY);
+    this.raycaster.setFromCamera(this.pointer, this.activeCamera);
+    const plane = new THREE.Plane(new THREE.Vector3(1, 0, 0), SURFACE_DIMENSIONS.WIDTH / 2);
+    const point = new THREE.Vector3();
+    if (!this.raycaster.ray.intersectPlane(plane, point)) return;
+
+    const freq = THREE.MathUtils.clamp(this.zToFreq(point.z), EQ_FREQ_MIN, this.currentEqFreqMax());
+    const gain = this.yToEqGain(point.y);
+    this.onEqBandChange?.(this.dragEqBandId, {
+      frequency: Math.round(freq),
+      gain: Math.round(gain * 10) / 10,
+    });
+  };
+
+  private onPointerUp = () => {
+    if (!this.dragEqBandId) return;
+    const released = this.dragEqBandId;
+    this.dragEqBandId = null;
+    this.controls.enabled = true;
+    this.renderer.domElement.style.cursor = '';
+    this.setHandleColor(released, EQ_HANDLE_COLOR);
+  };
+
+  private onWheel = (event: WheelEvent) => {
+    const hit = this.pickEqHandle(event.clientX, event.clientY);
+    const id = (hit?.userData.eqBandId as string | undefined) ?? this.hoverEqBandId ?? undefined;
+    const band = this.bandById(id ?? null);
+    if (!id || !band || band.type !== 'peaking') return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    const direction = event.deltaY < 0 ? 1 : -1;
+    const step = event.shiftKey ? 0.25 : 0.1;
+    const q = THREE.MathUtils.clamp(Math.round((band.q + direction * step) * 100) / 100, EQ_Q_MIN, EQ_Q_MAX);
+    this.onEqBandChange?.(id, { q });
+  };
 
   private yOfLevel(level: number, maxDb: number): number {
     const hMin = HEIGHT_FLOOR_DB;
@@ -436,6 +614,7 @@ export class SpectrogramScene {
       this.eqFreqs = null;
       this.eqLine.visible = false;
       this.eqZeroLine.visible = false;
+      this.eqHandleGroup.visible = false;
       return;
     }
 
@@ -447,6 +626,9 @@ export class SpectrogramScene {
     const { geometry, cols, rows } = buildSpectrogramGeometry(spec, {
       lufsLevel: this.lufsLevel,
       highlightAboveLufs: this.showLufsPlane,
+      noiseProfileDb: this.noiseProfileDb,
+      highlightNoise: this.showNoisePrint,
+      noiseThresholdDb: this.noiseThresholdDb,
     });
 
     // v0.8.1: FFT 단면 강조선용 — 서피스 정점 좌표와 격자 크기를 보관하고
@@ -588,16 +770,32 @@ export class SpectrogramScene {
     }
   }
 
+  setNoisePrint(profileDb: Float32Array | null, thresholdDb: number, showNoisePrint: boolean) {
+    this.noiseProfileDb = profileDb;
+    this.noiseThresholdDb = thresholdDb;
+    this.showNoisePrint = showNoisePrint;
+    if (this.currentSpectrogram) this.setSpectrogram(this.currentSpectrogram);
+  }
+
   dispose() {
     cancelAnimationFrame(this.frameId);
     this.resizeObserver.disconnect();
     this.controls.dispose();
+    this.renderer.domElement.removeEventListener('pointerdown', this.onPointerDown);
+    this.renderer.domElement.removeEventListener('wheel', this.onWheel, { capture: true });
+    window.removeEventListener('pointermove', this.onPointerMove);
+    window.removeEventListener('pointerup', this.onPointerUp);
     this.setSpectrogram(null);
     // v0.9.0: EQ 오버레이 정리
     this.eqLine.geometry.dispose();
     (this.eqLine.material as THREE.Material).dispose();
     this.eqZeroLine.geometry.dispose();
     (this.eqZeroLine.material as THREE.Material).dispose();
+    for (const mesh of this.eqHandleMeshes.values()) {
+      mesh.geometry.dispose();
+      (mesh.material as THREE.Material).dispose();
+    }
+    this.eqHandleMeshes.clear();
     this.renderer.dispose();
     if (this.renderer.domElement.parentElement === this.container) {
       this.container.removeChild(this.renderer.domElement);

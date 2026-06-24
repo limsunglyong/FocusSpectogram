@@ -128,6 +128,10 @@ export default function EqPanel() {
         ))}
       </div>
 
+      <p className="mt-3 font-label-mono-sm text-label-mono-sm text-on-surface-variant/70">
+        Drag 3D handles: FREQ / GAIN · Wheel on MID handles: Q
+      </p>
+
       <button
         onClick={resetEq}
         className="w-full flex items-center justify-center gap-2 mt-3 py-1.5 rounded border border-primary/40 text-primary hover:bg-primary/5 active:scale-95 transition-all font-label-mono-sm text-label-mono-sm uppercase tracking-widest"

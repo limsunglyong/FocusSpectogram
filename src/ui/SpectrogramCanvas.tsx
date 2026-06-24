@@ -22,6 +22,9 @@ export default function SpectrogramCanvas() {
   const eqBands = useAppStore((s) => s.eqBands);
   const lufsLevel = useAppStore((s) => s.lufsLevel);
   const showLufsPlane = useAppStore((s) => s.showLufsPlane);
+  const noisePrint = useAppStore((s) => s.noisePrint);
+  const showNoisePrint = useAppStore((s) => s.showNoisePrint);
+  const noiseThresholdDb = useAppStore((s) => s.noiseThresholdDb);
 
   // 씬 생성/해제 (마운트 1회)
   useEffect(() => {
@@ -34,7 +37,9 @@ export default function SpectrogramCanvas() {
 
     // v0.9.0: EQ 합성 응답(dB) 공급 — 오디오와 동일 계수식
     scene.eqResponseProvider = (freqs) => player.getEqResponseDb(freqs);
+    scene.onEqBandChange = (id, patch) => useAppStore.getState().setEqBand(id, patch);
     // 마운트 시 현재 EQ 상태 반영
+    scene.setEqBands(useAppStore.getState().eqBands);
     scene.setEqVisible(useAppStore.getState().eqEnabled);
 
     // 드래그 등으로 카메라가 바뀌면 슬라이더(store)에 반영
@@ -97,12 +102,17 @@ export default function SpectrogramCanvas() {
 
   // v0.9.0: 밴드 파라미터 변경 시 곡선 재계산
   useEffect(() => {
+    sceneRef.current?.setEqBands(eqBands);
     sceneRef.current?.refreshEqCurve();
   }, [eqBands]);
 
   useEffect(() => {
     sceneRef.current?.setLufsReference(lufsLevel, showLufsPlane);
   }, [lufsLevel, showLufsPlane]);
+
+  useEffect(() => {
+    sceneRef.current?.setNoisePrint(noisePrint?.profileDb ?? null, noiseThresholdDb, showNoisePrint);
+  }, [noisePrint, noiseThresholdDb, showNoisePrint]);
 
   return <div ref={containerRef} className="absolute inset-0" />;
 }

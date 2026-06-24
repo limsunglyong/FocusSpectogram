@@ -9,6 +9,7 @@ import FftPropertiesPanel from './panels/FftPropertiesPanel';
 import ViewportSettingsPanel from './panels/ViewportSettingsPanel';
 import HeatmapPanel from './panels/HeatmapPanel';
 import EqPanel from './panels/EqPanel';
+import NoisePrintPanel from './panels/NoisePrintPanel';
 
 // v0.3.0: 디코딩 완료 후 STFT 분석 진행/결과 표시 (Phase 2)
 function AnalysisState() {
@@ -120,6 +121,7 @@ export default function Viewport() {
       <div className="absolute top-4 right-4 bottom-4 z-10 w-72 flex flex-col gap-4 overflow-y-auto pr-1">
         <ViewportSettingsPanel />
         <EqPanel />
+        <NoisePrintPanel />
         <HeatmapPanel />
       </div>
 

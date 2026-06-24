@@ -24,10 +24,13 @@ export default function TransportBar() {
   const isLooping = useAppStore((s) => s.isLooping);
   const volume = useAppStore((s) => s.volume);
   const duration = useAppStore((s) => s.duration);
+  const noiseRangeStart = useAppStore((s) => s.noiseRangeStart);
+  const noiseRangeEnd = useAppStore((s) => s.noiseRangeEnd);
   const togglePlay = useAppStore((s) => s.togglePlay);
   const seek = useAppStore((s) => s.seek);
   const setVolume = useAppStore((s) => s.setVolume);
   const toggleLoop = useAppStore((s) => s.toggleLoop);
+  const setNoiseRange = useAppStore((s) => s.setNoiseRange);
 
   const currentFileName = meta?.fileName ?? null;
   const [currentTime, setCurrentTime] = useState(0);
@@ -66,6 +69,14 @@ export default function TransportBar() {
     handleSeek(ratio * duration);
   };
 
+  const timeFromClientX = (clientX: number) => {
+    const el = trackRef.current;
+    if (!el || duration <= 0) return 0;
+    const rect = el.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return ratio * duration;
+  };
+
   const onTrackPointerDown = (e: React.PointerEvent) => {
     if (!ready || duration <= 0) return;
     seekFromClientX(e.clientX);
@@ -78,13 +89,35 @@ export default function TransportBar() {
     window.addEventListener('pointerup', up);
   };
 
+  const onNoiseHandlePointerDown = (e: React.PointerEvent, edge: 'start' | 'end') => {
+    if (!ctrlEnabled) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const move = (ev: PointerEvent) => {
+      const t = timeFromClientX(ev.clientX);
+      if (edge === 'start') setNoiseRange(t, noiseRangeEnd);
+      else setNoiseRange(noiseRangeStart, t);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    move(e.nativeEvent);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
   const progress = duration > 0 ? Math.max(0, Math.min(1, currentTime / duration)) : 0;
   const ctrlEnabled = ready && duration > 0;
+  const noiseStartRatio = duration > 0 ? Math.max(0, Math.min(1, noiseRangeStart / duration)) : 0;
+  const noiseEndRatio = duration > 0 ? Math.max(0, Math.min(1, noiseRangeEnd / duration)) : 0;
+  const noiseLeft = Math.min(noiseStartRatio, noiseEndRatio) * 100;
+  const noiseRight = Math.max(noiseStartRatio, noiseEndRatio) * 100;
 
   return (
-    <footer className="bg-surface-container/10 backdrop-blur-xl border-t border-primary/10 h-20 shrink-0 flex flex-col">
+    <footer className="bg-surface-container/10 backdrop-blur-xl border-t border-primary/10 h-24 shrink-0 flex flex-col">
       {/* 타임라인 스크러버 */}
-      <div className="h-6 border-b border-outline-variant/40 flex items-center px-margin-desktop">
+      <div className="h-10 border-b border-outline-variant/40 flex items-center px-margin-desktop">
         <div
           ref={trackRef}
           onPointerDown={onTrackPointerDown}
@@ -102,6 +135,37 @@ export default function TransportBar() {
             className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-primary shadow-[0_0_8px_rgba(251,191,36,0.6)]"
             style={{ left: `${progress * 100}%`, opacity: ctrlEnabled ? 1 : 0 }}
           />
+          {/* Noise Print 선택 구간: 하단 보조 슬라이더 */}
+          <div
+            className="absolute left-0 right-0 top-[18px] h-1 rounded-full bg-secondary/15 pointer-events-none"
+            style={{ opacity: ctrlEnabled ? 1 : 0 }}
+          />
+          <div
+            className="absolute top-[18px] h-1 rounded-full bg-secondary/70 pointer-events-none"
+            style={{
+              left: `${noiseLeft}%`,
+              width: `${Math.max(0, noiseRight - noiseLeft)}%`,
+              opacity: ctrlEnabled ? 1 : 0,
+            }}
+          />
+          {ctrlEnabled && (
+            <>
+              <button
+                type="button"
+                title="Noise range start"
+                onPointerDown={(e) => onNoiseHandlePointerDown(e, 'start')}
+                className="absolute top-[13px] h-4 w-2 -translate-x-1/2 rounded-sm border border-secondary bg-background shadow-[0_0_8px_rgba(114,52,255,0.55)] cursor-ew-resize"
+                style={{ left: `${noiseStartRatio * 100}%` }}
+              />
+              <button
+                type="button"
+                title="Noise range end"
+                onPointerDown={(e) => onNoiseHandlePointerDown(e, 'end')}
+                className="absolute top-[13px] h-4 w-2 -translate-x-1/2 rounded-sm border border-secondary bg-background shadow-[0_0_8px_rgba(114,52,255,0.55)] cursor-ew-resize"
+                style={{ left: `${noiseEndRatio * 100}%` }}
+              />
+            </>
+          )}
         </div>
       </div>
 

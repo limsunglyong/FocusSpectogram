@@ -8,6 +8,13 @@ import { analyzeAudio, type AnalyzeHandle } from '../audio/analyzer';
 import { DEFAULT_STFT_PARAMS, type Spectrogram, type StftParams } from '../audio/stft';
 import { player } from '../audio/player';
 import { DEFAULT_EQ_BANDS, type EqBand } from '../audio/eq';
+import {
+  DEFAULT_NOISE_RANGE_SECONDS,
+  buildNoisePrint,
+  findQuietNoiseRange,
+  type NoisePrint,
+  type NoiseRangeCandidate,
+} from '../audio/noisePrint';
 
 export type Perspective = 'iso' | 'ortho' | '3d';
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -53,6 +60,23 @@ interface AppState {
   showLufsPlane: boolean;
   setLufsLevel: (level: number) => void;
   setShowLufsPlane: (show: boolean) => void;
+
+  // Noise Print (v0.10.0) — 수동 구간 기반 노이즈 지문 도식화
+  noisePrint: NoisePrint | null;
+  showNoisePrint: boolean;
+  noiseThresholdDb: number;
+  noiseSmoothingBins: number;
+  noiseRangeStart: number;
+  noiseRangeEnd: number;
+  noiseRangeCandidate: NoiseRangeCandidate | null;
+  noisePrintError: string | null;
+  captureNoisePrint: () => void;
+  findQuietNoiseRange: () => void;
+  clearNoisePrint: () => void;
+  setNoiseRange: (startTime: number, endTime: number) => void;
+  setShowNoisePrint: (show: boolean) => void;
+  setNoiseThresholdDb: (db: number) => void;
+  setNoiseSmoothingBins: (bins: number) => void;
 
   // 재생 (Phase 5)
   isPlaying: boolean;
@@ -137,6 +161,68 @@ export const useAppStore = create<AppState>((set, get) => ({
   setLufsLevel: (level) => set({ lufsLevel: level }),
   setShowLufsPlane: (show) => set({ showLufsPlane: show }),
 
+  noisePrint: null,
+  showNoisePrint: true,
+  noiseThresholdDb: 6,
+  noiseSmoothingBins: 2,
+  noiseRangeStart: 0,
+  noiseRangeEnd: DEFAULT_NOISE_RANGE_SECONDS,
+  noiseRangeCandidate: null,
+  noisePrintError: null,
+  captureNoisePrint: () => {
+    const spec = get().spectrogram;
+    if (!spec) {
+      set({ noisePrintError: '먼저 오디오 분석을 완료하세요.' });
+      return;
+    }
+    const { noiseRangeStart, noiseRangeEnd } = get();
+    const startTime = Math.min(noiseRangeStart, noiseRangeEnd);
+    const endTime = Math.max(noiseRangeStart, noiseRangeEnd);
+    const print = buildNoisePrint(spec, startTime, endTime, get().noiseSmoothingBins);
+    if (!print) {
+      set({ noisePrint: null, noisePrintError: '유효한 노이즈 구간을 선택하세요.' });
+      return;
+    }
+    set({ noisePrint: print, showNoisePrint: true, noisePrintError: null });
+  },
+  findQuietNoiseRange: () => {
+    const spec = get().spectrogram;
+    if (!spec) {
+      set({ noisePrintError: '먼저 오디오 분석을 완료하세요.' });
+      return;
+    }
+    const found = findQuietNoiseRange(spec, DEFAULT_NOISE_RANGE_SECONDS);
+    if (!found) {
+      set({ noisePrintError: '조용한 구간을 찾을 수 없습니다.' });
+      return;
+    }
+    set({
+      noiseRangeStart: found.startTime,
+      noiseRangeEnd: found.endTime,
+      noiseRangeCandidate: found,
+      noisePrintError: null,
+    });
+  },
+  clearNoisePrint: () => set({ noisePrint: null, noisePrintError: null }),
+  setNoiseRange: (startTime, endTime) => {
+    const duration = get().duration;
+    const a = Math.max(0, Math.min(startTime, duration));
+    const b = Math.max(0, Math.min(endTime, duration));
+    set({ noiseRangeStart: Math.min(a, b), noiseRangeEnd: Math.max(a, b), noiseRangeCandidate: null, noisePrintError: null });
+  },
+  setShowNoisePrint: (show) => set({ showNoisePrint: show }),
+  setNoiseThresholdDb: (db) => set({ noiseThresholdDb: db }),
+  setNoiseSmoothingBins: (bins) => {
+    const next = Math.max(0, Math.round(bins));
+    const spec = get().spectrogram;
+    const current = get().noisePrint;
+    set({ noiseSmoothingBins: next });
+    if (spec && current) {
+      const print = buildNoisePrint(spec, current.startTime, current.endTime, next);
+      if (print) set({ noisePrint: print });
+    }
+  },
+
   isPlaying: false,
   isLooping: false,
   volume: 1,
@@ -190,13 +276,27 @@ export const useAppStore = create<AppState>((set, get) => ({
       analysisStatus: 'idle',
       analysisProgress: 0,
       analysisError: null,
+      noisePrint: null,
+      noiseRangeStart: 0,
+      noiseRangeEnd: 0,
+      noiseRangeCandidate: null,
+      noisePrintError: null,
       isPlaying: false,
       duration: 0,
     });
     try {
       const { buffer, meta } = await decodeAudioFile(file);
       player.load(buffer);
-      set({ audioBuffer: buffer, meta, loadStatus: 'ready', loadError: null, duration: buffer.duration });
+      set({
+        audioBuffer: buffer,
+        meta,
+        loadStatus: 'ready',
+        loadError: null,
+        duration: buffer.duration,
+        noiseRangeStart: 0,
+        noiseRangeEnd: Math.min(DEFAULT_NOISE_RANGE_SECONDS, buffer.duration),
+        noiseRangeCandidate: null,
+      });
 
       // 디코딩 성공 → 자동 분석 시작
       set({ analysisStatus: 'analyzing', analysisProgress: 0, analysisError: null });
@@ -235,6 +335,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       analysisStatus: 'idle',
       analysisProgress: 0,
       analysisError: null,
+      noisePrint: null,
+      noiseRangeStart: 0,
+      noiseRangeEnd: 0,
+      noiseRangeCandidate: null,
+      noisePrintError: null,
       isPlaying: false,
       duration: 0,
     });
