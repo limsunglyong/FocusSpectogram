@@ -44,10 +44,15 @@ interface AppState {
 
   // 분석 (Phase 2)
   stftParams: StftParams;
+  setStftParams: (params: Partial<StftParams>) => void;
   spectrogram: Spectrogram | null;
   analysisStatus: AnalysisStatus;
   analysisProgress: number; // 0..1
   analysisError: string | null;
+  lufsLevel: number;
+  showLufsPlane: boolean;
+  setLufsLevel: (level: number) => void;
+  setShowLufsPlane: (show: boolean) => void;
 
   // 재생 (Phase 5)
   isPlaying: boolean;
@@ -90,10 +95,47 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadError: null,
 
   stftParams: DEFAULT_STFT_PARAMS,
+  setStftParams: (params) => {
+    currentAnalysis?.cancel();
+    currentAnalysis = null;
+
+    const nextParams = { ...get().stftParams, ...params };
+    const audioBuffer = get().audioBuffer;
+    set({
+      stftParams: nextParams,
+      spectrogram: null,
+      analysisStatus: audioBuffer ? 'analyzing' : 'idle',
+      analysisProgress: 0,
+      analysisError: null,
+    });
+
+    if (!audioBuffer) return;
+
+    const handle = analyzeAudio(audioBuffer, nextParams, (p) => set({ analysisProgress: p }));
+    currentAnalysis = handle;
+    handle.promise
+      .then((spectrogram) => {
+        if (currentAnalysis === handle) {
+          set({ spectrogram, analysisStatus: 'done', analysisProgress: 1 });
+          currentAnalysis = null;
+        }
+      })
+      .catch((err) => {
+        if (currentAnalysis === handle) {
+          const message = err instanceof Error ? err.message : '遺꾩꽍???ㅽ뙣?덉뒿?덈떎.';
+          set({ analysisStatus: 'error', analysisError: message });
+          currentAnalysis = null;
+        }
+      });
+  },
   spectrogram: null,
   analysisStatus: 'idle',
   analysisProgress: 0,
   analysisError: null,
+  lufsLevel: -23,
+  showLufsPlane: false,
+  setLufsLevel: (level) => set({ lufsLevel: level }),
+  setShowLufsPlane: (show) => set({ showLufsPlane: show }),
 
   isPlaying: false,
   isLooping: false,

@@ -57,13 +57,19 @@ export interface SurfaceBuildResult {
   rows: number;
 }
 
+export interface SurfaceBuildOptions {
+  lufsLevel?: number;
+  highlightAboveLufs?: boolean;
+}
+
 /** 스펙트로그램으로부터 정점 변위 + 정점 색상 서피스 지오메트리를 생성 */
-export function buildSpectrogramGeometry(spec: Spectrogram): SurfaceBuildResult {
+export function buildSpectrogramGeometry(spec: Spectrogram, options: SurfaceBuildOptions = {}): SurfaceBuildResult {
   const { cols, rows, db } = downsample(spec);
 
   const hMin = HEIGHT_FLOOR_DB;
   const hMax = Math.max(spec.maxDb, hMin + 1);
   const hRange = hMax - hMin;
+  const shouldHighlight = options.highlightAboveLufs && typeof options.lufsLevel === 'number';
 
   const vertexCount = cols * rows;
   const positions = new Float32Array(vertexCount * 3);
@@ -82,10 +88,16 @@ export function buildSpectrogramGeometry(spec: Spectrogram): SurfaceBuildResult 
       positions[idx * 3 + 1] = y;
       positions[idx * 3 + 2] = z;
 
-      const [cr, cg, cb] = colormap(norm);
-      colors[idx * 3] = cr;
-      colors[idx * 3 + 1] = cg;
-      colors[idx * 3 + 2] = cb;
+      if (shouldHighlight && db[idx] >= options.lufsLevel!) {
+        colors[idx * 3] = 1;
+        colors[idx * 3 + 1] = 0.08;
+        colors[idx * 3 + 2] = 0.06;
+      } else {
+        const [cr, cg, cb] = colormap(norm);
+        colors[idx * 3] = cr;
+        colors[idx * 3 + 1] = cg;
+        colors[idx * 3 + 2] = cb;
+      }
     }
   }
 

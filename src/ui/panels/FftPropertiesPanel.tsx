@@ -3,6 +3,9 @@
 // v0.2.1: Sample Rate를 원본 헤더값으로 표시 (리샘플링된 컨텍스트 레이트 버그 수정)
 import { useAppStore } from '../../store/appStore';
 
+const HOP_SIZE_OPTIONS = [128, 256, 512, 1024, 2048];
+const LUFS_LEVEL_OPTIONS = [-6, -9, -12, -14, -16, -18, -23, -27, -30, -36, -40];
+
 function Field({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
     <div>
@@ -30,7 +33,13 @@ export default function FftPropertiesPanel() {
   // v0.3.0: 분석 상태에 따른 배지 + Window/FFT 정보 바인딩 (Phase 2)
   const analysisStatus = useAppStore((s) => s.analysisStatus);
   const params = useAppStore((s) => s.stftParams);
+  const setStftParams = useAppStore((s) => s.setStftParams);
+  const lufsLevel = useAppStore((s) => s.lufsLevel);
+  const showLufsPlane = useAppStore((s) => s.showLufsPlane);
+  const setLufsLevel = useAppStore((s) => s.setLufsLevel);
+  const setShowLufsPlane = useAppStore((s) => s.setShowLufsPlane);
   const spec = useAppStore((s) => s.spectrogram);
+  const hopDisabled = loadStatus === 'loading' || analysisStatus === 'analyzing';
 
   const status =
     analysisStatus === 'analyzing'
@@ -63,12 +72,61 @@ export default function FftPropertiesPanel() {
         <Field label="Window" value={params.window.toUpperCase()} />
         <Field label="Peak Level" value={peak} accent />
         <Field label="FFT Size" value={`${params.fftSize}`} />
-        <Field label="Hop Size" value={`${params.hopSize}`} />
+        <div>
+          <label
+            htmlFor="hop-size-select"
+            className="block font-label-mono-sm text-label-mono-sm text-on-surface-variant uppercase"
+          >
+            Hop Size
+          </label>
+          <select
+            id="hop-size-select"
+            value={params.hopSize}
+            disabled={hopDisabled}
+            onChange={(e) => setStftParams({ hopSize: Number(e.target.value) })}
+            className="mt-1 w-full rounded border border-primary/30 bg-background/60 px-2 py-1 font-label-mono-lg text-label-mono-lg text-on-surface outline-none transition-colors hover:border-primary/60 focus:border-primary disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {HOP_SIZE_OPTIONS.map((hopSize) => (
+              <option key={hopSize} value={hopSize}>
+                {hopSize}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label
+            htmlFor="lufs-level-select"
+            className="block font-label-mono-sm text-label-mono-sm text-on-surface-variant uppercase"
+          >
+            LUFS Level
+          </label>
+          <select
+            id="lufs-level-select"
+            value={lufsLevel}
+            onChange={(e) => setLufsLevel(Number(e.target.value))}
+            className="mt-1 w-full rounded border border-primary/30 bg-background/60 px-2 py-1 font-label-mono-lg text-label-mono-lg text-on-surface outline-none transition-colors hover:border-primary/60 focus:border-primary"
+          >
+            {LUFS_LEVEL_OPTIONS.map((level) => (
+              <option key={level} value={level}>
+                {level} LUFS
+              </option>
+            ))}
+          </select>
+        </div>
+        <label className="flex items-center gap-2 self-end rounded border border-primary/30 bg-secondary/10 px-2 py-1.5 font-label-mono-sm text-label-mono-sm text-on-surface-variant uppercase">
+          <input
+            type="checkbox"
+            checked={showLufsPlane}
+            onChange={(e) => setShowLufsPlane(e.target.checked)}
+            className="accent-primary"
+          />
+          LUFS Plane
+        </label>
       </div>
       <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-outline-variant">
         <span className="font-label-mono-sm text-label-mono-sm text-on-surface-variant">— X: TIME (S)</span>
         <span className="font-label-mono-sm text-label-mono-sm text-on-surface-variant">— Y: FREQ (KHZ)</span>
-        <span className="font-label-mono-sm text-label-mono-sm text-on-surface-variant">— Z: LEVEL (DB)</span>
+        <span className="font-label-mono-sm text-label-mono-sm text-on-surface-variant">— Z: LEVEL (LUFS)</span>
       </div>
       {spec && (
         <p className="mt-2 font-label-mono-sm text-label-mono-sm text-on-surface-variant/60">

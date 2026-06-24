@@ -20,6 +20,8 @@ export default function SpectrogramCanvas() {
   const playedRegion = useAppStore((s) => s.playedRegion);
   const eqEnabled = useAppStore((s) => s.eqEnabled);
   const eqBands = useAppStore((s) => s.eqBands);
+  const lufsLevel = useAppStore((s) => s.lufsLevel);
+  const showLufsPlane = useAppStore((s) => s.showLufsPlane);
 
   // 씬 생성/해제 (마운트 1회)
   useEffect(() => {
@@ -97,6 +99,10 @@ export default function SpectrogramCanvas() {
   useEffect(() => {
     sceneRef.current?.refreshEqCurve();
   }, [eqBands]);
+
+  useEffect(() => {
+    sceneRef.current?.setLufsReference(lufsLevel, showLufsPlane);
+  }, [lufsLevel, showLufsPlane]);
 
   return <div ref={containerRef} className="absolute inset-0" />;
 }
