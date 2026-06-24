@@ -21,7 +21,9 @@
  *  - v0.7.0 : Phase 5 재생·트랜스포트 동기화 (재생/일시정지/seek/볼륨/반복, 타임라인 스크러버, 3D 플레이헤드)
  *  - v0.7.1 : 기능개선 - 플레이헤드가 지나온 구간 표시 방식(Played Region: SHOW/FADE/HIDE) 옵션 추가
  *  - v0.8.0 : Phase 6 Electron 패키징 (electron-builder, Windows NSIS 설치파일, 메인/프리로드 프로세스)
+ *  - v0.8.1 : 기능개선 - 재생 시점의 FFT 스펙트럼 단면(주파수×강도)을 강조선으로 표시
+ *  - v0.9.0 : EQ 오버레이·실시간 조절 (5밴드 파라메트릭 BiquadFilter + 앞면 응답 곡선 오버레이)
  */
 export const APP_NAME = 'SonicCube';
-export const APP_VERSION = '0.8.0';
+export const APP_VERSION = '0.9.0';
 export const APP_VERSION_LABEL = `v${APP_VERSION}`;

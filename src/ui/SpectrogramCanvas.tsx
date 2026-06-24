@@ -18,6 +18,8 @@ export default function SpectrogramCanvas() {
   const zoom = useAppStore((s) => s.zoom);
   const perspective = useAppStore((s) => s.perspective);
   const playedRegion = useAppStore((s) => s.playedRegion);
+  const eqEnabled = useAppStore((s) => s.eqEnabled);
+  const eqBands = useAppStore((s) => s.eqBands);
 
   // 씬 생성/해제 (마운트 1회)
   useEffect(() => {
@@ -27,6 +29,11 @@ export default function SpectrogramCanvas() {
 
     // 재생 위치를 매 프레임 씬이 직접 조회(React 리렌더 없이 플레이헤드 이동)
     scene.playheadTimeProvider = () => player.getCurrentTime();
+
+    // v0.9.0: EQ 합성 응답(dB) 공급 — 오디오와 동일 계수식
+    scene.eqResponseProvider = (freqs) => player.getEqResponseDb(freqs);
+    // 마운트 시 현재 EQ 상태 반영
+    scene.setEqVisible(useAppStore.getState().eqEnabled);
 
     // 드래그 등으로 카메라가 바뀌면 슬라이더(store)에 반영
     scene.onCameraChange = (st) => {
@@ -80,6 +87,16 @@ export default function SpectrogramCanvas() {
     const mode = playedRegion === 'hide' ? 2 : playedRegion === 'fade' ? 1 : 0;
     sceneRef.current?.setPlayedMode(mode);
   }, [playedRegion]);
+
+  // v0.9.0: EQ on/off → 오버레이 가시성(켜질 때 곡선 갱신)
+  useEffect(() => {
+    sceneRef.current?.setEqVisible(eqEnabled);
+  }, [eqEnabled]);
+
+  // v0.9.0: 밴드 파라미터 변경 시 곡선 재계산
+  useEffect(() => {
+    sceneRef.current?.refreshEqCurve();
+  }, [eqBands]);
 
   return <div ref={containerRef} className="absolute inset-0" />;
 }

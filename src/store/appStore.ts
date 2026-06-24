@@ -7,6 +7,7 @@ import { decodeAudioFile, AudioDecodeError, type AudioMeta } from '../audio/deco
 import { analyzeAudio, type AnalyzeHandle } from '../audio/analyzer';
 import { DEFAULT_STFT_PARAMS, type Spectrogram, type StftParams } from '../audio/stft';
 import { player } from '../audio/player';
+import { DEFAULT_EQ_BANDS, type EqBand } from '../audio/eq';
 
 export type Perspective = 'iso' | 'ortho' | '3d';
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -60,6 +61,13 @@ interface AppState {
   seek: (t: number) => void;
   setVolume: (v: number) => void;
   toggleLoop: () => void;
+
+  // EQ (v0.9.0) — 실시간 BiquadFilter + 3D 오버레이 곡선
+  eqEnabled: boolean;
+  eqBands: EqBand[];
+  setEqEnabled: (b: boolean) => void;
+  setEqBand: (id: string, patch: Partial<EqBand>) => void;
+  resetEq: () => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -108,6 +116,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     const next = !get().isLooping;
     player.setLoop(next);
     set({ isLooping: next });
+  },
+
+  // EQ (v0.9.0)
+  eqEnabled: false,
+  eqBands: DEFAULT_EQ_BANDS.map((b) => ({ ...b })),
+  setEqEnabled: (b) => {
+    player.setEqEnabled(b);
+    set({ eqEnabled: b });
+  },
+  setEqBand: (id, patch) => {
+    const bands = get().eqBands.map((b) => (b.id === id ? { ...b, ...patch } : b));
+    player.setEqBands(bands);
+    set({ eqBands: bands });
+  },
+  resetEq: () => {
+    const bands = DEFAULT_EQ_BANDS.map((b) => ({ ...b }));
+    player.setEqBands(bands);
+    set({ eqBands: bands });
   },
 
   loadFile: async (file) => {

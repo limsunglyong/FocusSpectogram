@@ -22,6 +22,13 @@ const ISO_ROTX_DEG = 35;
 
 // v0.7.0: 플레이헤드 색(gold, axes COLOR_TIME과 동일 계열)
 const PLAYHEAD_COLOR = 0xfbbf24;
+// v0.8.1: 재생 시점 FFT 단면 강조선 색(밝은 화이트)
+const SLICE_COLOR = 0xfbbf24;
+// v0.9.0: EQ 오버레이 곡선 색(emerald)·표시 범위·해상도
+const EQ_COLOR = 0x34d399;
+const EQ_ZERO_COLOR = 0x0e8a6e; // 0dB 기준선(어두운 emerald)
+const EQ_DB_RANGE = 18; // 곡선 Y 매핑 ± dB
+const EQ_CURVE_POINTS = 160; // 주파수축 샘플 수
 
 export interface CameraState {
   rotationX: number; // 0..90 (지평선 기준 올려본 각)
@@ -49,6 +56,21 @@ export class SpectrogramScene {
   private playheadDuration = 0; // 시간축 도메인(초) = 스펙트로그램 시간 길이
   /** 매 프레임 현재 재생 위치(초)를 반환. null이면 플레이헤드 미갱신 */
   playheadTimeProvider: (() => number) | null = null;
+
+  // v0.8.1: 재생 시점의 FFT 스펙트럼(주파수×강도) 단면 강조선
+  private sliceLine!: THREE.Line;
+  private surfacePos: Float32Array | null = null; // 서피스 지오메트리 정점 좌표 참조
+  private sliceCols = 0; // 서피스 시간축 열 수
+  private sliceRows = 0; // 서피스 주파수축 행 수
+
+  // v0.9.0: EQ 오버레이 곡선 (서피스 앞면 time=0 모서리, 주파수축 Z × gain dB)
+  private eqLine!: THREE.Line;
+  private eqZeroLine!: THREE.Line;
+  private eqVisible = false;
+  private eqMaxFreq = 0; // 표시 주파수 상한(Nyquist, Hz)
+  private eqFreqs: Float32Array | null = null; // 샘플 주파수(Hz)
+  /** 주파수 배열(Hz) → 합성 EQ 응답(dB)을 반환. null이면 곡선 미갱신 */
+  eqResponseProvider: ((freqHz: Float32Array) => Float32Array) | null = null;
 
   // v0.7.1: 지나온 구간 표시 (0=show, 1=fade, 2=hide). 서피스 셰이더 uniform으로 적용
   private playedMode = 0;
@@ -103,6 +125,8 @@ export class SpectrogramScene {
     this.playhead = this.buildPlayhead();
     this.playhead.visible = false;
     this.scene.add(this.playhead);
+
+    this.buildEqOverlay();
 
     this.resizeObserver = new ResizeObserver(() => this.onResize());
     this.resizeObserver.observe(container);
@@ -165,7 +189,103 @@ export class SpectrogramScene {
     bar.position.y = 0.2; // 바닥(grid) 살짝 위
     group.add(bar);
 
+    // v0.8.1: 현재 재생 시점의 FFT 단면(주파수축 Z를 따라 강도 Y를 잇는) 강조선.
+    // 로컬 X=0으로 두면 group.position.x(=플레이헤드 시간 위치)를 따라 이동한다.
+    // setSpectrogram에서 실제 행 수만큼 position 속성을 교체한다.
+    const lineGeo = new THREE.BufferGeometry();
+    lineGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3));
+    const lineMat = new THREE.LineBasicMaterial({
+      color: SLICE_COLOR,
+      transparent: true,
+      opacity: 0.95,
+      depthTest: false, // 서피스에 가려지지 않고 항상 강조되도록
+    });
+    const line = new THREE.Line(lineGeo, lineMat);
+    line.renderOrder = 999;
+    line.frustumCulled = false;
+    group.add(line);
+    this.sliceLine = line;
+
     return group;
+  }
+
+  /** v0.9.0: EQ 오버레이 — 앞면(time=0)에 주파수축을 따라 합성 응답 곡선 + 0dB 기준선 */
+  private buildEqOverlay() {
+    const { WIDTH, DEPTH } = SURFACE_DIMENSIONS;
+    const xFront = -WIDTH / 2;
+
+    // 0dB 기준선: 앞면을 가로지르는 직선 (주파수 0 → Nyquist)
+    const zeroGeo = new THREE.BufferGeometry();
+    zeroGeo.setAttribute(
+      'position',
+      new THREE.BufferAttribute(
+        new Float32Array([xFront, this.eqGainToY(0), -DEPTH / 2, xFront, this.eqGainToY(0), DEPTH / 2]),
+        3,
+      ),
+    );
+    const zeroMat = new THREE.LineBasicMaterial({
+      color: EQ_ZERO_COLOR,
+      transparent: true,
+      opacity: 0.5,
+      depthTest: false,
+    });
+    this.eqZeroLine = new THREE.Line(zeroGeo, zeroMat);
+    this.eqZeroLine.renderOrder = 997;
+    this.eqZeroLine.frustumCulled = false;
+    this.eqZeroLine.visible = false;
+    this.scene.add(this.eqZeroLine);
+
+    // 응답 곡선: EQ_CURVE_POINTS개 정점, setSpectrogram/refresh에서 갱신
+    const curveGeo = new THREE.BufferGeometry();
+    curveGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(EQ_CURVE_POINTS * 3), 3));
+    const curveMat = new THREE.LineBasicMaterial({
+      color: EQ_COLOR,
+      transparent: true,
+      opacity: 0.95,
+      depthTest: false,
+    });
+    this.eqLine = new THREE.Line(curveGeo, curveMat);
+    this.eqLine.renderOrder = 998;
+    this.eqLine.frustumCulled = false;
+    this.eqLine.visible = false;
+    this.scene.add(this.eqLine);
+  }
+
+  /** EQ gain(dB) → 앞면 Y. 0dB=HEIGHT/2 중심, ±EQ_DB_RANGE를 ±HEIGHT/2로 매핑 */
+  private eqGainToY(db: number): number {
+    const { HEIGHT } = SURFACE_DIMENSIONS;
+    const clamped = THREE.MathUtils.clamp(db, -EQ_DB_RANGE, EQ_DB_RANGE);
+    return HEIGHT / 2 + (clamped / EQ_DB_RANGE) * (HEIGHT / 2);
+  }
+
+  /** 주파수(Hz) → Z. 서피스 매핑과 동일(0Hz=-DEPTH/2, Nyquist=+DEPTH/2) */
+  private freqToZ(freqHz: number): number {
+    const ratio = this.eqMaxFreq > 0 ? freqHz / this.eqMaxFreq : 0;
+    return (THREE.MathUtils.clamp(ratio, 0, 1) - 0.5) * SURFACE_DIMENSIONS.DEPTH;
+  }
+
+  /** v0.9.0: EQ 오버레이 표시 토글. 표시 시 곡선 즉시 갱신 */
+  setEqVisible(visible: boolean) {
+    this.eqVisible = visible;
+    const show = visible && this.eqMaxFreq > 0;
+    this.eqLine.visible = show;
+    this.eqZeroLine.visible = show;
+    if (show) this.refreshEqCurve();
+  }
+
+  /** v0.9.0: 현재 밴드 응답으로 곡선 정점 재계산 (밴드 변경/표시 시 호출) */
+  refreshEqCurve() {
+    if (!this.eqVisible || !this.eqFreqs || !this.eqResponseProvider || this.eqMaxFreq <= 0) return;
+    const db = this.eqResponseProvider(this.eqFreqs);
+    const attr = this.eqLine.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const out = attr.array as Float32Array;
+    const xFront = -SURFACE_DIMENSIONS.WIDTH / 2;
+    for (let i = 0; i < this.eqFreqs.length; i++) {
+      out[i * 3] = xFront;
+      out[i * 3 + 1] = this.eqGainToY(db[i]);
+      out[i * 3 + 2] = this.freqToZ(this.eqFreqs[i]);
+    }
+    attr.needsUpdate = true;
   }
 
   // ---- 카메라 제어 (Phase 4) ----------------------------------------------
@@ -268,6 +388,13 @@ export class SpectrogramScene {
     if (!spec || spec.frames === 0) {
       this.playheadDuration = 0;
       this.playhead.visible = false;
+      this.surfacePos = null;
+      this.sliceCols = 0;
+      this.sliceRows = 0;
+      this.eqMaxFreq = 0;
+      this.eqFreqs = null;
+      this.eqLine.visible = false;
+      this.eqZeroLine.visible = false;
       return;
     }
 
@@ -276,7 +403,27 @@ export class SpectrogramScene {
     this.playhead.position.x = -SURFACE_DIMENSIONS.WIDTH / 2;
     this.playhead.visible = true;
 
-    const { geometry } = buildSpectrogramGeometry(spec);
+    const { geometry, cols, rows } = buildSpectrogramGeometry(spec);
+
+    // v0.8.1: FFT 단면 강조선용 — 서피스 정점 좌표와 격자 크기를 보관하고
+    // 강조선 지오메트리를 행(주파수 bin) 수만큼 재할당한다.
+    this.surfacePos = geometry.getAttribute('position').array as Float32Array;
+    this.sliceCols = cols;
+    this.sliceRows = rows;
+    this.sliceLine.geometry.setAttribute(
+      'position',
+      new THREE.BufferAttribute(new Float32Array(rows * 3), 3),
+    );
+
+    // v0.9.0: EQ 오버레이 주파수 도메인(0..Nyquist) 설정 + 곡선 갱신
+    this.eqMaxFreq = spec.bins * spec.freqStep;
+    const freqs = new Float32Array(EQ_CURVE_POINTS);
+    for (let i = 0; i < EQ_CURVE_POINTS; i++) {
+      freqs[i] = (i / (EQ_CURVE_POINTS - 1)) * this.eqMaxFreq;
+    }
+    this.eqFreqs = freqs;
+    this.setEqVisible(this.eqVisible); // 가시성 유지하며 곡선 재계산
+
     const material = new THREE.MeshStandardMaterial({
       vertexColors: true,
       side: THREE.DoubleSide,
@@ -357,6 +504,25 @@ export class SpectrogramScene {
     this.playhead.position.x = x;
     // v0.7.1: 지나온 구간 셰이더에 플레이헤드 X 전달
     if (this.surfaceUniforms) this.surfaceUniforms.uPlayheadX.value = x;
+    // v0.8.1: 현재 시점의 FFT 단면 강조선 갱신
+    this.updateSliceLine(ratio);
+  }
+
+  /** v0.8.1: 재생 비율(0..1)에 해당하는 시간 열의 서피스 단면으로 강조선을 갱신 */
+  private updateSliceLine(ratio: number) {
+    if (!this.surfacePos || this.sliceCols === 0) return;
+    const rows = this.sliceRows;
+    const c = Math.round(ratio * (this.sliceCols - 1));
+    const attr = this.sliceLine.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const out = attr.array as Float32Array;
+    const base = c * rows; // 해당 시간 열의 첫 정점 인덱스
+    for (let r = 0; r < rows; r++) {
+      const si = (base + r) * 3;
+      out[r * 3] = 0; // 로컬 X=0 (group.position.x가 시간 위치를 담당)
+      out[r * 3 + 1] = this.surfacePos[si + 1]; // Y = 강도
+      out[r * 3 + 2] = this.surfacePos[si + 2]; // Z = 주파수
+    }
+    attr.needsUpdate = true;
   }
 
   /** v0.7.1: 지나온 구간 표시 방식 (0=show, 1=fade, 2=hide) */
@@ -370,6 +536,11 @@ export class SpectrogramScene {
     this.resizeObserver.disconnect();
     this.controls.dispose();
     this.setSpectrogram(null);
+    // v0.9.0: EQ 오버레이 정리
+    this.eqLine.geometry.dispose();
+    (this.eqLine.material as THREE.Material).dispose();
+    this.eqZeroLine.geometry.dispose();
+    (this.eqZeroLine.material as THREE.Material).dispose();
     this.renderer.dispose();
     if (this.renderer.domElement.parentElement === this.container) {
       this.container.removeChild(this.renderer.domElement);

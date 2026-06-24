@@ -1,7 +1,7 @@
 {
   "name": "soniccube",
   "private": true,
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "SonicCube - 3D Audio Spectrogram Viewer",
   "author": "SonicCube",
   "type": "module",
