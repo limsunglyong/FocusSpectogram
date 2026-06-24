@@ -8,6 +8,8 @@ import { HEIGHT_FLOOR_DB } from './surface';
 export interface AxisRanges {
   duration: number; // s (X)
   maxFreq: number; // Hz (Z)
+  lufsLevel?: number;
+  showLufsPlane?: boolean;
   maxDb: number; // dB (Y 상단)
 }
 
@@ -20,6 +22,7 @@ export interface AxisDims {
 const COLOR_TIME = '#fbbf24'; // gold
 const COLOR_FREQ = '#10b981'; // emerald
 const COLOR_INTENSITY = '#e2f3f1'; // light
+const COLOR_LUFS = '#ff1f1f';
 const COLOR_TICK = '#94b1af'; // on-surface-variant
 
 const FONT_PX = 64; // 텍스처 내부 해상도(글리프 높이 기준)
@@ -162,9 +165,14 @@ export function buildAxes(dims: AxisDims, ranges: AxisRanges) {
       group.add(s);
     }
     // 축 끝(상단)에 배치
-    const title = makeLabel('INTENSITY (dB)', COLOR_INTENSITY, TITLE_TEXT_H, true);
+    const title = makeLabel('LEVEL (LUFS)', COLOR_INTENSITY, TITLE_TEXT_H, true);
     title.position.set(-WIDTH / 2 - off, HEIGHT + off * 2, -DEPTH / 2);
     group.add(title);
+    if (ranges.showLufsPlane && typeof ranges.lufsLevel === 'number') {
+      const lufs = makeLabel(`${Math.round(ranges.lufsLevel)} LUFS`, COLOR_LUFS, TICK_TEXT_H, true);
+      lufs.position.set(-WIDTH / 2 - off * 2.6, yOfDb(ranges.lufsLevel), -DEPTH / 2 - off);
+      group.add(lufs);
+    }
   }
 
   const dispose = () => {

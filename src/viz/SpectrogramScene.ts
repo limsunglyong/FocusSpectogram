@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { Spectrogram } from '../audio/stft';
-import { buildSpectrogramGeometry, SURFACE_DIMENSIONS } from './surface';
+import { buildSpectrogramGeometry, HEIGHT_FLOOR_DB, SURFACE_DIMENSIONS } from './surface';
 import { buildAxes } from './axes';
 
 export type Perspective = 'iso' | 'ortho' | '3d';
@@ -22,6 +22,7 @@ const ISO_ROTX_DEG = 35;
 
 // v0.7.0: 플레이헤드 색(gold, axes COLOR_TIME과 동일 계열)
 const PLAYHEAD_COLOR = 0xfbbf24;
+const LUFS_COLOR = 0xff1f1f;
 
 export interface CameraState {
   rotationX: number; // 0..90 (지평선 기준 올려본 각)
@@ -37,8 +38,10 @@ export class SpectrogramScene {
   private activeCamera: THREE.Camera;
   private controls!: OrbitControls;
   private mesh: THREE.Mesh | null = null;
+  private currentSpectrogram: Spectrogram | null = null;
   private axisGroup: THREE.Group | null = null;
   private disposeAxes: (() => void) | null = null;
+  private lufsPlane: THREE.Mesh | null = null;
   private frameId = 0;
   private resizeObserver: ResizeObserver;
   private isOrtho = false;
@@ -57,6 +60,8 @@ export class SpectrogramScene {
     uPlayedMode: { value: number };
     uPlayedAlpha: { value: number };
   } | null = null;
+  private lufsLevel = -23;
+  private showLufsPlane = false;
 
   /** 사용자 드래그 등으로 카메라가 바뀔 때 호출 (슬라이더 동기화용) */
   onCameraChange: ((state: CameraState) => void) | null = null;
@@ -168,6 +173,40 @@ export class SpectrogramScene {
     return group;
   }
 
+  private yOfLevel(level: number, maxDb: number): number {
+    const hMin = HEIGHT_FLOOR_DB;
+    const hMax = Math.max(maxDb, hMin + 1);
+    const norm = THREE.MathUtils.clamp((level - hMin) / (hMax - hMin), 0, 1);
+    return norm * SURFACE_DIMENSIONS.HEIGHT;
+  }
+
+  private clearLufsPlane() {
+    if (!this.lufsPlane) return;
+    this.scene.remove(this.lufsPlane);
+    this.lufsPlane.geometry.dispose();
+    (this.lufsPlane.material as THREE.Material).dispose();
+    this.lufsPlane = null;
+  }
+
+  private updateLufsPlane() {
+    this.clearLufsPlane();
+    if (!this.showLufsPlane || !this.currentSpectrogram) return;
+
+    const { WIDTH, DEPTH } = SURFACE_DIMENSIONS;
+    const geometry = new THREE.PlaneGeometry(WIDTH, DEPTH);
+    geometry.rotateX(-Math.PI / 2);
+    const material = new THREE.MeshBasicMaterial({
+      color: LUFS_COLOR,
+      transparent: true,
+      opacity: 0.18,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    this.lufsPlane = new THREE.Mesh(geometry, material);
+    this.lufsPlane.position.y = this.yOfLevel(this.lufsLevel, this.currentSpectrogram.maxDb);
+    this.scene.add(this.lufsPlane);
+  }
+
   // ---- 카메라 제어 (Phase 4) ----------------------------------------------
 
   /** 현재 카메라의 rotationX(지평선 기준 각)·zoom을 읽는다 */
@@ -252,6 +291,8 @@ export class SpectrogramScene {
 
   /** 스펙트로그램 교체 (null이면 메쉬/축 제거) */
   setSpectrogram(spec: Spectrogram | null) {
+    this.currentSpectrogram = spec;
+    this.clearLufsPlane();
     if (this.mesh) {
       this.scene.remove(this.mesh);
       this.mesh.geometry.dispose();
@@ -276,7 +317,10 @@ export class SpectrogramScene {
     this.playhead.position.x = -SURFACE_DIMENSIONS.WIDTH / 2;
     this.playhead.visible = true;
 
-    const { geometry } = buildSpectrogramGeometry(spec);
+    const { geometry } = buildSpectrogramGeometry(spec, {
+      lufsLevel: this.lufsLevel,
+      highlightAboveLufs: this.showLufsPlane,
+    });
     const material = new THREE.MeshStandardMaterial({
       vertexColors: true,
       side: THREE.DoubleSide,
@@ -321,10 +365,13 @@ export class SpectrogramScene {
       duration: spec.frames * spec.timeStep,
       maxFreq: spec.bins * spec.freqStep,
       maxDb: spec.maxDb,
+      lufsLevel: this.lufsLevel,
+      showLufsPlane: this.showLufsPlane,
     });
     this.axisGroup = group;
     this.disposeAxes = dispose;
     this.scene.add(group);
+    this.updateLufsPlane();
   }
 
   private onResize() {
@@ -363,6 +410,16 @@ export class SpectrogramScene {
   setPlayedMode(mode: number) {
     this.playedMode = mode;
     if (this.surfaceUniforms) this.surfaceUniforms.uPlayedMode.value = mode;
+  }
+
+  setLufsReference(level: number, showPlane: boolean) {
+    this.lufsLevel = level;
+    this.showLufsPlane = showPlane;
+    if (this.currentSpectrogram) {
+      this.setSpectrogram(this.currentSpectrogram);
+    } else {
+      this.updateLufsPlane();
+    }
   }
 
   dispose() {

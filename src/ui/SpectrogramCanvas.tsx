@@ -18,6 +18,8 @@ export default function SpectrogramCanvas() {
   const zoom = useAppStore((s) => s.zoom);
   const perspective = useAppStore((s) => s.perspective);
   const playedRegion = useAppStore((s) => s.playedRegion);
+  const lufsLevel = useAppStore((s) => s.lufsLevel);
+  const showLufsPlane = useAppStore((s) => s.showLufsPlane);
 
   // 씬 생성/해제 (마운트 1회)
   useEffect(() => {
@@ -80,6 +82,10 @@ export default function SpectrogramCanvas() {
     const mode = playedRegion === 'hide' ? 2 : playedRegion === 'fade' ? 1 : 0;
     sceneRef.current?.setPlayedMode(mode);
   }, [playedRegion]);
+
+  useEffect(() => {
+    sceneRef.current?.setLufsReference(lufsLevel, showLufsPlane);
+  }, [lufsLevel, showLufsPlane]);
 
   return <div ref={containerRef} className="absolute inset-0" />;
 }
