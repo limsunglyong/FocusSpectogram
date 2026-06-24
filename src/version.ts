@@ -23,7 +23,8 @@
  *  - v0.8.0 : Phase 6 Electron 패키징 (electron-builder, Windows NSIS 설치파일, 메인/프리로드 프로세스)
  *  - v0.8.1 : 기능개선 - 재생 시점의 FFT 스펙트럼 단면(주파수×강도)을 강조선으로 표시
  *  - v0.9.0 : EQ 오버레이·실시간 조절 (5밴드 파라메트릭 BiquadFilter + 앞면 응답 곡선 오버레이)
+ *  - v0.9.1 : 버그수정 - FLAC 샘플레이트가 MP3 헤더로 오인되어 11.0kHz로 표시될 수 있던 문제
  */
 export const APP_NAME = 'SonicCube';
-export const APP_VERSION = '0.9.0';
+export const APP_VERSION = '0.9.1';
 export const APP_VERSION_LABEL = `v${APP_VERSION}`;

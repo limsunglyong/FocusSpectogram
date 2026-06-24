@@ -82,7 +82,7 @@ export class SpectrogramScene {
     uPlayedMode: { value: number };
     uPlayedAlpha: { value: number };
   } | null = null;
-  private lufsLevel = -23;
+  private lufsLevel = -14;
   private showLufsPlane = false;
 
   /** 사용자 드래그 등으로 카메라가 바뀔 때 호출 (슬라이더 동기화용) */

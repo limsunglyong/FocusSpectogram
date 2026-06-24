@@ -83,7 +83,7 @@ function extOf(name: string): string {
 // ---------------------------------------------------------------------------
 // v0.2.1: 원본 샘플레이트 헤더 파싱
 // decodeAudioData는 AudioContext 레이트로 리샘플링하므로 buffer.sampleRate는
-// 원본이 아니다. 표시용 원본 값은 파일 헤더에서 직접 읽는다. (mp3/wav 우선)
+// 원본이 아니다. 표시용 원본 값은 파일 헤더에서 직접 읽는다. (wav/mp3/flac)
 // ---------------------------------------------------------------------------
 
 function readAscii(view: DataView, offset: number, len: number): string {
@@ -138,14 +138,52 @@ function parseMp3SampleRate(view: DataView): number | null {
   return null;
 }
 
+/** FLAC STREAMINFO metadata block에서 원본 샘플레이트(Hz)를 읽는다. 실패 시 null */
+function parseFlacSampleRate(view: DataView): number | null {
+  let off = 0;
+  // 일부 FLAC 파일은 비표준 ID3v2 태그가 앞에 붙어 있을 수 있어 건너뛴다.
+  if (view.byteLength > 10 && readAscii(view, 0, 3) === 'ID3') {
+    const size =
+      (view.getUint8(6) << 21) | (view.getUint8(7) << 14) | (view.getUint8(8) << 7) | view.getUint8(9);
+    off = 10 + size;
+  }
+
+  if (off + 4 > view.byteLength || readAscii(view, off, 4) !== 'fLaC') return null;
+  off += 4;
+
+  while (off + 4 <= view.byteLength) {
+    const header = view.getUint8(off);
+    const blockType = header & 0x7f;
+    const length = (view.getUint8(off + 1) << 16) | (view.getUint8(off + 2) << 8) | view.getUint8(off + 3);
+    const dataOff = off + 4;
+    if (dataOff + length > view.byteLength) return null;
+
+    if (blockType === 0) {
+      // STREAMINFO: bytes 10..12 hold the 20-bit sample rate, followed by channels/bits/total samples.
+      if (length < 18) return null;
+      const sr =
+        (view.getUint8(dataOff + 10) << 12) |
+        (view.getUint8(dataOff + 11) << 4) |
+        (view.getUint8(dataOff + 12) >> 4);
+      return sr > 0 ? sr : null;
+    }
+
+    off = dataOff + length;
+    if (header & 0x80) break;
+  }
+
+  return null;
+}
+
 /** 확장자/헤더 기반으로 원본 샘플레이트를 추정. 실패 시 null */
 function parseOriginalSampleRate(buf: ArrayBuffer, ext: string): number | null {
   const view = new DataView(buf);
   try {
     if (ext === '.wav') return parseWavSampleRate(view);
     if (ext === '.mp3') return parseMp3SampleRate(view);
-    // 확장자가 모호하면 wav→mp3 순으로 시도
-    return parseWavSampleRate(view) ?? parseMp3SampleRate(view);
+    if (ext === '.flac') return parseFlacSampleRate(view);
+    // 확장자가 모호하면 시그니처 기반 파서를 안전한 순서로 시도
+    return parseWavSampleRate(view) ?? parseFlacSampleRate(view) ?? parseMp3SampleRate(view);
   } catch {
     return null;
   }

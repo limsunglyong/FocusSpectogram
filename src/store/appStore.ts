@@ -132,7 +132,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   analysisStatus: 'idle',
   analysisProgress: 0,
   analysisError: null,
-  lufsLevel: -23,
+  lufsLevel: -14,
   showLufsPlane: false,
   setLufsLevel: (level) => set({ lufsLevel: level }),
   setShowLufsPlane: (show) => set({ showLufsPlane: show }),
