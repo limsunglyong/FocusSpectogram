@@ -3,7 +3,7 @@
 // 축 매핑: X=시간, Z=주파수(깊이), Y=레벨(높이).
 import * as THREE from 'three';
 import type { Spectrogram } from '../audio/stft';
-import { colormap } from './colormap';
+import { lufsAdaptiveColormap } from './colormap';
 
 /** 사용자 승인: 시간축 최대 프레임 수. 초과 시 구간별 max-pooling 병합. */
 export const MAX_FRAMES = 2000;
@@ -59,7 +59,6 @@ export interface SurfaceBuildResult {
 
 export interface SurfaceBuildOptions {
   lufsLevel?: number;
-  highlightAboveLufs?: boolean;
   noiseProfileDb?: Float32Array | null;
   highlightNoise?: boolean;
   noiseThresholdDb?: number;
@@ -72,7 +71,7 @@ export function buildSpectrogramGeometry(spec: Spectrogram, options: SurfaceBuil
   const hMin = HEIGHT_FLOOR_DB;
   const hMax = Math.max(spec.maxDb, hMin + 1);
   const hRange = hMax - hMin;
-  const shouldHighlight = options.highlightAboveLufs && typeof options.lufsLevel === 'number';
+  const lufsLevel = options.lufsLevel ?? -14;
   const shouldHighlightNoise = options.highlightNoise && options.noiseProfileDb && options.noiseProfileDb.length > 0;
   const noiseThreshold = options.noiseThresholdDb ?? 6;
   const rowScale = spec.bins / rows;
@@ -109,12 +108,8 @@ export function buildSpectrogramGeometry(spec: Spectrogram, options: SurfaceBuil
         colors[idx * 3] = 0.72;
         colors[idx * 3 + 1] = 0.34;
         colors[idx * 3 + 2] = 1;
-      } else if (shouldHighlight && db[idx] >= options.lufsLevel!) {
-        colors[idx * 3] = 1;
-        colors[idx * 3 + 1] = 0.08;
-        colors[idx * 3 + 2] = 0.06;
       } else {
-        const [cr, cg, cb] = colormap(norm);
+        const [cr, cg, cb] = lufsAdaptiveColormap(db[idx], lufsLevel);
         colors[idx * 3] = cr;
         colors[idx * 3 + 1] = cg;
         colors[idx * 3 + 2] = cb;

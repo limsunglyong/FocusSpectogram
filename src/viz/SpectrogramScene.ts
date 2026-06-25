@@ -8,8 +8,10 @@ import { EQ_FREQ_MAX, EQ_FREQ_MIN, EQ_GAIN_RANGE, EQ_Q_MAX, EQ_Q_MIN, type EqBan
 import type { Spectrogram } from '../audio/stft';
 import { buildSpectrogramGeometry, HEIGHT_FLOOR_DB, SURFACE_DIMENSIONS } from './surface';
 import { buildAxes } from './axes';
+import { lufsAdaptiveColormap } from './colormap';
 
 export type Perspective = 'iso' | 'ortho' | '3d';
+export type SpectralViewMode = 'analyst' | 'cinema' | 'water';
 
 // 뷰 리셋용 기본 카메라 상태
 const DEFAULT_CAM_POS = new THREE.Vector3(90, 70, 90);
@@ -25,6 +27,7 @@ const ISO_ROTX_DEG = 35;
 const PLAYHEAD_COLOR = 0xfbbf24;
 // v0.8.1: 재생 시점 FFT 단면 강조선 색(밝은 화이트)
 const SLICE_COLOR = 0xfbbf24;
+const WATER_SLICE_COUNT = 30;
 // v0.9.0: EQ 오버레이 곡선 색(emerald)·표시 범위·해상도
 const EQ_COLOR = 0x34d399;
 const EQ_ZERO_COLOR = 0x0e8a6e; // 0dB 기준선(어두운 emerald)
@@ -49,9 +52,12 @@ export class SpectrogramScene {
   private activeCamera: THREE.Camera;
   private controls!: OrbitControls;
   private mesh: THREE.Mesh | null = null;
+  private waterLines: THREE.LineSegments | null = null;
+  private waterFill: THREE.Mesh | null = null;
   private currentSpectrogram: Spectrogram | null = null;
   private axisGroup: THREE.Group | null = null;
   private disposeAxes: (() => void) | null = null;
+  private grid: THREE.GridHelper | null = null;
   private lufsPlane: THREE.Mesh | null = null;
   private frameId = 0;
   private resizeObserver: ResizeObserver;
@@ -67,6 +73,7 @@ export class SpectrogramScene {
   // v0.8.1: 재생 시점의 FFT 스펙트럼(주파수×강도) 단면 강조선
   private sliceLine!: THREE.Line;
   private surfacePos: Float32Array | null = null; // 서피스 지오메트리 정점 좌표 참조
+  private surfaceColor: Float32Array | null = null; // LUFS 적응 컬러 정점 좌표 참조
   private sliceCols = 0; // 서피스 시간축 열 수
   private sliceRows = 0; // 서피스 주파수축 행 수
 
@@ -100,6 +107,7 @@ export class SpectrogramScene {
   private noiseProfileDb: Float32Array | null = null;
   private noiseThresholdDb = 6;
   private showNoisePrint = false;
+  private spectralViewMode: SpectralViewMode = 'analyst';
 
   /** 사용자 드래그 등으로 카메라가 바뀔 때 호출 (슬라이더 동기화용) */
   onCameraChange: ((state: CameraState) => void) | null = null;
@@ -180,6 +188,7 @@ export class SpectrogramScene {
     (grid.material as THREE.Material).opacity = 0.25;
     (grid.material as THREE.Material).transparent = true;
     grid.position.y = 0;
+    this.grid = grid;
     this.scene.add(grid);
   }
 
@@ -232,6 +241,12 @@ export class SpectrogramScene {
     this.sliceLine = line;
 
     return group;
+  }
+
+  private setSliceStyle() {
+    const material = this.sliceLine.material as THREE.LineBasicMaterial;
+    material.color.setHex(SLICE_COLOR);
+    material.opacity = 0.95;
   }
 
   /** v0.9.0: EQ 오버레이 — 앞면(time=0)에 주파수축을 따라 합성 응답 곡선 + 0dB 기준선 */
@@ -307,7 +322,7 @@ export class SpectrogramScene {
   /** v0.9.0: EQ 오버레이 표시 토글. 표시 시 곡선 즉시 갱신 */
   setEqVisible(visible: boolean) {
     this.eqVisible = visible;
-    const show = visible && this.eqMaxFreq > 0;
+    const show = visible && this.eqMaxFreq > 0 && this.spectralViewMode !== 'water';
     this.eqLine.visible = show;
     this.eqZeroLine.visible = show;
     this.eqHandleGroup.visible = show;
@@ -486,6 +501,97 @@ export class SpectrogramScene {
     this.lufsPlane = null;
   }
 
+  private clearWaterLines() {
+    if (this.waterLines) {
+      this.scene.remove(this.waterLines);
+      this.waterLines.geometry.dispose();
+      (this.waterLines.material as THREE.Material).dispose();
+      this.waterLines = null;
+    }
+    if (this.waterFill) {
+      this.scene.remove(this.waterFill);
+      this.waterFill.geometry.dispose();
+      (this.waterFill.material as THREE.Material).dispose();
+      this.waterFill = null;
+    }
+  }
+
+  private updateWaterLines() {
+    this.clearWaterLines();
+    if (!this.surfacePos || !this.surfaceColor || this.sliceCols < 2 || this.sliceRows < 2) return;
+
+    const points: number[] = [];
+    const colors: number[] = [];
+    const fillPositions: number[] = [];
+    const fillColors: number[] = [];
+    const rowStep = Math.max(1, Math.floor(this.sliceRows / 220));
+    const selected = Math.min(WATER_SLICE_COUNT, this.sliceCols);
+    const samplePoint = (c: number, r: number) => {
+      const i = (c * this.sliceRows + r) * 3;
+      const y = this.surfacePos![i + 1];
+      const cr = this.surfaceColor![i];
+      const cg = this.surfaceColor![i + 1];
+      const cb = this.surfaceColor![i + 2];
+      return { x: this.surfacePos![i], y, z: this.surfacePos![i + 2], cr, cg, cb };
+    };
+    const pushLinePoint = (p: ReturnType<typeof samplePoint>) => {
+      points.push(p.x, p.y, p.z);
+      colors.push(p.cr, p.cg, p.cb);
+    };
+    const pushFillPoint = (x: number, y: number, z: number, color: [number, number, number]) => {
+      fillPositions.push(x, y, z);
+      fillColors.push(color[0], color[1], color[2]);
+    };
+
+    for (let i = 0; i < selected; i++) {
+      const c = selected === 1 ? 0 : Math.round((i / (selected - 1)) * (this.sliceCols - 1));
+      for (let r = 0; r < this.sliceRows - rowStep; r += rowStep) {
+        const r1 = Math.min(r + rowStep, this.sliceRows - 1);
+        const a = samplePoint(c, r);
+        const b = samplePoint(c, r1);
+        pushLinePoint(a);
+        pushLinePoint(b);
+
+        const floorColor = lufsAdaptiveColormap(HEIGHT_FLOOR_DB, this.lufsLevel);
+        pushFillPoint(a.x, 0, a.z, floorColor);
+        pushFillPoint(a.x, a.y, a.z, [a.cr, a.cg, a.cb]);
+        pushFillPoint(b.x, b.y, b.z, [b.cr, b.cg, b.cb]);
+        pushFillPoint(a.x, 0, a.z, floorColor);
+        pushFillPoint(b.x, b.y, b.z, [b.cr, b.cg, b.cb]);
+        pushFillPoint(b.x, 0, b.z, floorColor);
+      }
+    }
+
+    const fillGeometry = new THREE.BufferGeometry();
+    fillGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(fillPositions), 3));
+    fillGeometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(fillColors), 3));
+    const fillMaterial = new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 0.5,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      vertexColors: true,
+    });
+    this.waterFill = new THREE.Mesh(fillGeometry, fillMaterial);
+    this.waterFill.renderOrder = 995;
+    this.waterFill.frustumCulled = false;
+    this.scene.add(this.waterFill);
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(points), 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(colors), 3));
+    const material = new THREE.LineBasicMaterial({
+      transparent: true,
+      opacity: 0.86,
+      depthTest: false,
+      vertexColors: true,
+    });
+    this.waterLines = new THREE.LineSegments(geometry, material);
+    this.waterLines.renderOrder = 996;
+    this.waterLines.frustumCulled = false;
+    this.scene.add(this.waterLines);
+  }
+
   private updateLufsPlane() {
     this.clearLufsPlane();
     if (!this.showLufsPlane || !this.currentSpectrogram) return;
@@ -587,6 +693,56 @@ export class SpectrogramScene {
 
   // -------------------------------------------------------------------------
 
+  setSpectralViewMode(mode: SpectralViewMode) {
+    this.spectralViewMode = mode;
+    if (mode === 'cinema') {
+      this.scene.background = new THREE.Color(0x020b13);
+      this.setCameraSpherical({ thetaDeg: 38, rotationXDeg: 22, zoom: 1.55 });
+    } else if (mode === 'water') {
+      this.scene.background = new THREE.Color(0x171611);
+      this.setCameraSpherical({ thetaDeg: 52, rotationXDeg: 20, zoom: 1.75 });
+    } else {
+      this.scene.background = new THREE.Color(0x031716);
+    }
+    this.applySpectralViewMode();
+    this.onCameraChange?.(this.readCameraState());
+  }
+
+  private applySpectralViewMode() {
+    const isCinema = this.spectralViewMode === 'cinema';
+    const isWater = this.spectralViewMode === 'water';
+
+    if (this.mesh) {
+      this.mesh.visible = !isWater;
+      const material = this.mesh.material as THREE.MeshStandardMaterial;
+      material.opacity = isCinema ? 0.78 : 1;
+      material.roughness = isCinema ? 0.32 : 0.6;
+      material.metalness = isCinema ? 0.2 : 0.1;
+    }
+
+    if (this.axisGroup) this.axisGroup.visible = !isCinema && !isWater;
+    if (this.grid) {
+      this.grid.visible = !isWater;
+      const material = this.grid.material as THREE.Material;
+      material.opacity = isCinema ? 0.1 : 0.25;
+    }
+
+    const hasTimeline = this.playheadDuration > 0;
+    this.playhead.visible = hasTimeline;
+    const plane = this.playhead.children[0];
+    const bar = this.playhead.children[1];
+    const slice = this.playhead.children[2];
+    if (plane) plane.visible = !isCinema && !isWater;
+    if (bar) bar.visible = true;
+    if (slice) slice.visible = true;
+    this.setSliceStyle();
+
+    if (this.waterLines) this.waterLines.visible = isWater;
+    if (this.waterFill) this.waterFill.visible = isWater;
+    if (this.lufsPlane) this.lufsPlane.visible = !isCinema && !isWater && this.showLufsPlane;
+    this.setEqVisible(this.eqVisible);
+  }
+
   /** 스펙트로그램 교체 (null이면 메쉬/축 제거) */
   setSpectrogram(spec: Spectrogram | null) {
     this.currentSpectrogram = spec;
@@ -598,6 +754,7 @@ export class SpectrogramScene {
       this.mesh = null;
       this.surfaceUniforms = null;
     }
+    this.clearWaterLines();
     if (this.axisGroup) {
       this.scene.remove(this.axisGroup);
       this.disposeAxes?.();
@@ -608,6 +765,7 @@ export class SpectrogramScene {
       this.playheadDuration = 0;
       this.playhead.visible = false;
       this.surfacePos = null;
+      this.surfaceColor = null;
       this.sliceCols = 0;
       this.sliceRows = 0;
       this.eqMaxFreq = 0;
@@ -615,6 +773,7 @@ export class SpectrogramScene {
       this.eqLine.visible = false;
       this.eqZeroLine.visible = false;
       this.eqHandleGroup.visible = false;
+      this.applySpectralViewMode();
       return;
     }
 
@@ -625,7 +784,6 @@ export class SpectrogramScene {
 
     const { geometry, cols, rows } = buildSpectrogramGeometry(spec, {
       lufsLevel: this.lufsLevel,
-      highlightAboveLufs: this.showLufsPlane,
       noiseProfileDb: this.noiseProfileDb,
       highlightNoise: this.showNoisePrint,
       noiseThresholdDb: this.noiseThresholdDb,
@@ -634,12 +792,14 @@ export class SpectrogramScene {
     // v0.8.1: FFT 단면 강조선용 — 서피스 정점 좌표와 격자 크기를 보관하고
     // 강조선 지오메트리를 행(주파수 bin) 수만큼 재할당한다.
     this.surfacePos = geometry.getAttribute('position').array as Float32Array;
+    this.surfaceColor = geometry.getAttribute('color').array as Float32Array;
     this.sliceCols = cols;
     this.sliceRows = rows;
     this.sliceLine.geometry.setAttribute(
       'position',
       new THREE.BufferAttribute(new Float32Array(rows * 3), 3),
     );
+    this.updateWaterLines();
 
     // v0.9.0: EQ 오버레이 주파수 도메인(0..Nyquist) 설정 + 곡선 갱신
     this.eqMaxFreq = spec.bins * spec.freqStep;
@@ -701,6 +861,7 @@ export class SpectrogramScene {
     this.disposeAxes = dispose;
     this.scene.add(group);
     this.updateLufsPlane();
+    this.applySpectralViewMode();
   }
 
   private onResize() {
@@ -735,6 +896,7 @@ export class SpectrogramScene {
     if (this.surfaceUniforms) this.surfaceUniforms.uPlayheadX.value = x;
     // v0.8.1: 현재 시점의 FFT 단면 강조선 갱신
     this.updateSliceLine(ratio);
+    this.playhead.rotation.y = 0;
   }
 
   /** v0.8.1: 재생 비율(0..1)에 해당하는 시간 열의 서피스 단면으로 강조선을 갱신 */
@@ -767,6 +929,7 @@ export class SpectrogramScene {
       this.setSpectrogram(this.currentSpectrogram);
     } else {
       this.updateLufsPlane();
+      this.applySpectralViewMode();
     }
   }
 

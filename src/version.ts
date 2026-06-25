@@ -26,7 +26,8 @@
  *  - v0.9.1 : 버그수정 - FLAC 샘플레이트가 MP3 헤더로 오인되어 11.0kHz로 표시될 수 있던 문제
  *  - v0.10.0 : Noise Print 분석 - 수동 노이즈 구간 캡처와 후보 영역 도식화
  *  - v0.11.0 : Noise Reduction 처리·통합 Amount 조절·EQ 프리셋 추가 반영
+ *  - v0.12.0 : Spectral View 모드(Cinema/Water)·LUFS 적응 컬러·WATER 시각화 개선 반영
  */
 export const APP_NAME = 'FocusDAW - Sonic Analysis';
-export const APP_VERSION = '0.11.0';
+export const APP_VERSION = '0.12.0';
 export const APP_VERSION_LABEL = `v${APP_VERSION}`;

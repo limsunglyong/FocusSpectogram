@@ -23,6 +23,7 @@ export type AnalysisStatus = 'idle' | 'analyzing' | 'done' | 'error';
 export type NoiseReductionStatus = 'idle' | 'processing' | 'done' | 'error';
 // v0.7.1: 플레이헤드가 지나온 구간의 표시 방식
 export type PlayedRegionMode = 'show' | 'fade' | 'hide';
+export type SpectralViewMode = 'analyst' | 'cinema' | 'water';
 
 let currentAnalysis: AnalyzeHandle | null = null;
 
@@ -56,9 +57,11 @@ interface AppState {
   rotationX: number; // deg
   zoom: number;
   perspective: Perspective;
+  spectralViewMode: SpectralViewMode;
   setRotationX: (v: number) => void;
   setZoom: (v: number) => void;
   setPerspective: (p: Perspective) => void;
+  setSpectralViewMode: (m: SpectralViewMode) => void;
 
   // v0.7.1: 지나온 구간 표시 방식 (show=그대로, fade=반투명, hide=숨김)
   playedRegion: PlayedRegionMode;
@@ -144,9 +147,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   rotationX: 45,
   zoom: 1.2,
   perspective: 'iso',
+  spectralViewMode: 'analyst',
   setRotationX: (v) => set({ rotationX: v }),
   setZoom: (v) => set({ zoom: v }),
   setPerspective: (p) => set({ perspective: p }),
+  setSpectralViewMode: (m) => set({ spectralViewMode: m }),
 
   playedRegion: 'show',
   setPlayedRegion: (m) => set({ playedRegion: m }),

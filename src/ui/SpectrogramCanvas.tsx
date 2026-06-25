@@ -17,6 +17,7 @@ export default function SpectrogramCanvas() {
   const rotationX = useAppStore((s) => s.rotationX);
   const zoom = useAppStore((s) => s.zoom);
   const perspective = useAppStore((s) => s.perspective);
+  const spectralViewMode = useAppStore((s) => s.spectralViewMode);
   const playedRegion = useAppStore((s) => s.playedRegion);
   const eqEnabled = useAppStore((s) => s.eqEnabled);
   const eqBands = useAppStore((s) => s.eqBands);
@@ -55,6 +56,7 @@ export default function SpectrogramCanvas() {
     // 초기 store 값 적용
     const s = useAppStore.getState();
     scene.setPerspective(s.perspective);
+    scene.setSpectralViewMode(s.spectralViewMode);
     scene.setRotationX(s.rotationX);
     scene.setZoom(s.zoom);
 
@@ -88,6 +90,10 @@ export default function SpectrogramCanvas() {
   useEffect(() => {
     sceneRef.current?.setPerspective(perspective);
   }, [perspective]);
+
+  useEffect(() => {
+    sceneRef.current?.setSpectralViewMode(spectralViewMode);
+  }, [spectralViewMode]);
 
   // v0.7.1: 지나온 구간 표시 방식 (show=0 / fade=1 / hide=2)
   useEffect(() => {

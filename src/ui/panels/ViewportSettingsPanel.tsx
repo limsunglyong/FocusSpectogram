@@ -1,6 +1,6 @@
 // SonicCube v0.1.0 - 뷰포트 설정 패널 (슬라이더는 store와 연동, 3D 반영은 Phase 4)
 // v0.7.1: 지나온 구간(Played Region) 표시 방식 토글 추가
-import { useAppStore, type Perspective, type PlayedRegionMode } from '../../store/appStore';
+import { useAppStore, type Perspective, type PlayedRegionMode, type SpectralViewMode } from '../../store/appStore';
 
 const PERSPECTIVES: { id: Perspective; label: string }[] = [
   { id: 'iso', label: 'ISO' },
@@ -12,6 +12,12 @@ const PLAYED_REGIONS: { id: PlayedRegionMode; label: string }[] = [
   { id: 'show', label: 'SHOW' },
   { id: 'fade', label: 'FADE' },
   { id: 'hide', label: 'HIDE' },
+];
+
+const SPECTRAL_VIEW_MODES: { id: SpectralViewMode; label: string }[] = [
+  { id: 'analyst', label: 'ANALYST' },
+  { id: 'cinema', label: 'CINEMA' },
+  { id: 'water', label: 'WATER' },
 ];
 
 function Slider({
@@ -51,8 +57,19 @@ function Slider({
 }
 
 export default function ViewportSettingsPanel() {
-  const { rotationX, zoom, perspective, setRotationX, setZoom, setPerspective, requestViewReset, playedRegion, setPlayedRegion } =
-    useAppStore();
+  const {
+    rotationX,
+    zoom,
+    perspective,
+    spectralViewMode,
+    setRotationX,
+    setZoom,
+    setPerspective,
+    setSpectralViewMode,
+    requestViewReset,
+    playedRegion,
+    setPlayedRegion,
+  } = useAppStore();
   return (
     <div className="glass-panel rounded-lg p-4">
       <p className="font-label-mono-sm text-label-mono-sm text-primary uppercase tracking-widest mb-3">
@@ -91,6 +108,25 @@ export default function ViewportSettingsPanel() {
                 }`}
               >
                 {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <span className="font-label-mono-sm text-label-mono-sm text-on-surface-variant uppercase">Spectral View</span>
+          <div className="grid grid-cols-3 gap-1 mt-1">
+            {SPECTRAL_VIEW_MODES.map((m) => (
+              <button
+                key={m.id}
+                onClick={() => setSpectralViewMode(m.id)}
+                className={`font-label-mono-sm text-label-mono-sm py-1 rounded transition-colors ${
+                  spectralViewMode === m.id
+                    ? 'bg-primary text-on-primary font-bold'
+                    : 'bg-secondary/20 text-secondary hover:bg-secondary/30'
+                }`}
+              >
+                {m.label}
               </button>
             ))}
           </div>
