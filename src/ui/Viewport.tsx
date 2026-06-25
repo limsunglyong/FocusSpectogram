@@ -85,6 +85,35 @@ function CenterState() {
   );
 }
 
+function ProcessingOverlay() {
+  const noiseReductionStatus = useAppStore((s) => s.noiseReductionStatus);
+  const noiseReductionProgress = useAppStore((s) => s.noiseReductionProgress);
+
+  if (noiseReductionStatus !== 'processing') return null;
+
+  const progress = Math.round(noiseReductionProgress * 100);
+
+  return (
+    <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/45 backdrop-blur-sm">
+      <div className="glass-panel w-80 rounded-lg p-5 text-center shadow-2xl">
+        <span className="material-symbols-outlined text-6xl text-secondary animate-pulse">graphic_eq</span>
+        <p className="mt-2 font-label-mono-sm text-label-mono-sm text-secondary uppercase tracking-widest">
+          Noise Reduction · {progress}%
+        </p>
+        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-surface-container">
+          <div
+            className="h-full bg-secondary transition-[width]"
+            style={{ width: `${noiseReductionProgress * 100}%` }}
+          />
+        </div>
+        <p className="mt-3 font-label-mono-sm text-label-mono-sm text-on-surface-variant/70">
+          Processing audio buffer...
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function Viewport() {
   const loadFile = useAppStore((s) => s.loadFile);
   const showCanvas = useAppStore((s) => s.analysisStatus === 'done' && s.spectrogram !== null);
@@ -137,6 +166,8 @@ export default function Viewport() {
           </p>
         </div>
       )}
+
+      <ProcessingOverlay />
     </section>
   );
 }

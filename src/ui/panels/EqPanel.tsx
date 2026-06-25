@@ -6,6 +6,7 @@ import {
   EQ_FREQ_MAX,
   EQ_Q_MIN,
   EQ_Q_MAX,
+  EQ_PRESETS,
   type EqBand,
 } from '../../audio/eq';
 import { useAppStore } from '../../store/appStore';
@@ -100,9 +101,12 @@ function BandCard({ band, onChange }: { band: EqBand; onChange: (patch: Partial<
 export default function EqPanel() {
   const eqEnabled = useAppStore((s) => s.eqEnabled);
   const eqBands = useAppStore((s) => s.eqBands);
+  const eqPresetId = useAppStore((s) => s.eqPresetId);
   const setEqEnabled = useAppStore((s) => s.setEqEnabled);
   const setEqBand = useAppStore((s) => s.setEqBand);
+  const applyEqPreset = useAppStore((s) => s.applyEqPreset);
   const resetEq = useAppStore((s) => s.resetEq);
+  const selectedPreset = EQ_PRESETS.find((preset) => preset.id === eqPresetId);
 
   return (
     <div className="glass-panel rounded-lg p-4">
@@ -121,6 +125,25 @@ export default function EqPanel() {
           {eqEnabled ? 'ON' : 'OFF'}
         </button>
       </div>
+
+      <label className="mb-3 block font-label-mono-sm text-label-mono-sm text-on-surface-variant uppercase">
+        Preset
+        <select
+          value={eqPresetId}
+          onChange={(e) => applyEqPreset(e.target.value)}
+          className="mt-1 w-full rounded border border-primary/30 bg-background/70 px-2 py-1 text-on-surface outline-none focus:border-primary"
+        >
+          {eqPresetId === 'custom' && <option value="custom">Custom</option>}
+          {EQ_PRESETS.map((preset) => (
+            <option key={preset.id} value={preset.id}>
+              {preset.label}
+            </option>
+          ))}
+        </select>
+        <span className="mt-1 block text-on-surface-variant/70 normal-case">
+          {selectedPreset?.description ?? 'Manual EQ settings'}
+        </span>
+      </label>
 
       <div className={`flex flex-col gap-2 transition-opacity ${eqEnabled ? '' : 'opacity-50'}`}>
         {eqBands.map((band) => (

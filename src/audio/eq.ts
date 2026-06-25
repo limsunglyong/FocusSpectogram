@@ -31,6 +31,50 @@ export const DEFAULT_EQ_BANDS: EqBand[] = [
   { id: 'high', label: 'HIGH', type: 'highshelf', frequency: 8000, gain: 0, q: 0.71 },
 ];
 
+export interface EqPreset {
+  id: string;
+  label: string;
+  description: string;
+  bands: EqBand[];
+}
+
+function presetBands(gains: [number, number, number, number, number]): EqBand[] {
+  return DEFAULT_EQ_BANDS.map((band, i) => ({ ...band, gain: gains[i] }));
+}
+
+export const EQ_PRESETS: EqPreset[] = [
+  {
+    id: 'flat',
+    label: 'Flat',
+    description: 'Original reference',
+    bands: presetBands([0, 0, 0, 0, 0]),
+  },
+  {
+    id: 'clean-up',
+    label: 'Clean Up',
+    description: 'Reduce mud, add light clarity',
+    bands: presetBands([-3, -4.5, -1.5, 2.5, 2]),
+  },
+  {
+    id: 'vocal-focus',
+    label: 'Vocal Focus',
+    description: 'Bring speech and vocal presence forward',
+    bands: presetBands([-1.5, -3, 2.5, 4.5, 2.5]),
+  },
+  {
+    id: 'warm-master',
+    label: 'Warm Master',
+    description: 'Fuller low end with softer top',
+    bands: presetBands([3.5, 2, -1.5, 0, -2]),
+  },
+  {
+    id: 'bright-detail',
+    label: 'Bright Detail',
+    description: 'More upper detail and air',
+    bands: presetBands([-2.5, -3, 0, 3.5, 5]),
+  },
+];
+
 /** 단일 밴드의 특정 주파수 응답(dB). Web Audio BiquadFilter 사양 계수식과 동일. */
 export function bandMagnitudeDb(band: EqBand, freqHz: number, sampleRate: number): number {
   const { type, frequency, gain, q } = band;

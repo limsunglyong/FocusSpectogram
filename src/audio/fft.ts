@@ -77,4 +77,16 @@ export class FFT {
       }
     }
   }
+
+  /** In-place inverse FFT. */
+  inverseTransform(re: Float32Array, im: Float32Array): void {
+    const n = this.size;
+    for (let i = 0; i < n; i++) im[i] = -im[i];
+    this.transform(re, im);
+    const invN = 1 / n;
+    for (let i = 0; i < n; i++) {
+      re[i] *= invN;
+      im[i] = -im[i] * invN;
+    }
+  }
 }

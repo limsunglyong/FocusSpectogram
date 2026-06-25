@@ -1,4 +1,5 @@
 // SonicCube v0.10.0 - Noise Print 패널 (수동/자동 구간 캡처 + 후보 영역 도식화)
+import { useState } from 'react';
 import {
   NOISE_SMOOTHING_MAX,
   NOISE_SMOOTHING_MIN,
@@ -26,17 +27,30 @@ export default function NoisePrintPanel() {
   const noiseRangeEnd = useAppStore((s) => s.noiseRangeEnd);
   const noiseRangeCandidate = useAppStore((s) => s.noiseRangeCandidate);
   const noisePrintError = useAppStore((s) => s.noisePrintError);
+  const noiseReductionStatus = useAppStore((s) => s.noiseReductionStatus);
+  const noiseReductionProgress = useAppStore((s) => s.noiseReductionProgress);
+  const noiseReductionError = useAppStore((s) => s.noiseReductionError);
+  const noiseReductionAmount = useAppStore((s) => s.noiseReductionAmount);
+  const noiseReductionFloor = useAppStore((s) => s.noiseReductionFloor);
+  const noiseReductionApplied = useAppStore((s) => s.noiseReductionApplied);
   const captureNoisePrint = useAppStore((s) => s.captureNoisePrint);
   const findQuietNoiseRange = useAppStore((s) => s.findQuietNoiseRange);
   const clearNoisePrint = useAppStore((s) => s.clearNoisePrint);
+  const applyNoiseReduction = useAppStore((s) => s.applyNoiseReduction);
+  const restoreOriginalAudio = useAppStore((s) => s.restoreOriginalAudio);
   const setNoiseRange = useAppStore((s) => s.setNoiseRange);
   const setShowNoisePrint = useAppStore((s) => s.setShowNoisePrint);
   const setNoiseThresholdDb = useAppStore((s) => s.setNoiseThresholdDb);
   const setNoiseSmoothingBins = useAppStore((s) => s.setNoiseSmoothingBins);
+  const setNoiseReductionPresetAmount = useAppStore((s) => s.setNoiseReductionPresetAmount);
+  const setNoiseReductionAmount = useAppStore((s) => s.setNoiseReductionAmount);
+  const setNoiseReductionFloor = useAppStore((s) => s.setNoiseReductionFloor);
+  const [showAdvancedReduction, setShowAdvancedReduction] = useState(false);
 
   const safeStart = Math.max(0, Math.min(noiseRangeStart, duration));
   const safeEnd = Math.max(0, Math.min(noiseRangeEnd, duration));
   const canCapture = ready && safeEnd > safeStart;
+  const reducing = noiseReductionStatus === 'processing';
 
   return (
     <div className="glass-panel rounded-lg p-4">
@@ -118,6 +132,91 @@ export default function NoisePrintPanel() {
         </label>
       </div>
 
+      <div className="mt-3 border-t border-outline-variant pt-3">
+        <label className="font-label-mono-sm text-label-mono-sm text-on-surface-variant uppercase">
+          Reduction Amount
+          <div className="flex items-center gap-2 mt-1">
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={noiseReductionAmount}
+              disabled={reducing}
+              onChange={(e) => setNoiseReductionPresetAmount(Number(e.target.value))}
+              className="flex-1 accent-primary"
+            />
+            <span className="w-12 text-right text-primary">{Math.round(noiseReductionAmount * 100)}%</span>
+          </div>
+          <span className="mt-1 block text-on-surface-variant/70">
+            Auto floor {Math.round(noiseReductionFloor * 100)}%
+          </span>
+        </label>
+
+        <button
+          type="button"
+          onClick={() => setShowAdvancedReduction((v) => !v)}
+          disabled={reducing}
+          className="mt-2 font-label-mono-sm text-label-mono-sm text-secondary uppercase tracking-widest hover:text-primary disabled:opacity-40"
+        >
+          {showAdvancedReduction ? 'Hide Advanced' : 'Advanced'}
+        </button>
+
+        {showAdvancedReduction && (
+          <div className="mt-2 border-t border-outline-variant/60 pt-2">
+            <label className="block font-label-mono-sm text-label-mono-sm text-on-surface-variant uppercase">
+              Reduction
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={noiseReductionAmount}
+                  disabled={reducing}
+                  onChange={(e) => setNoiseReductionAmount(Number(e.target.value))}
+                  className="flex-1 accent-primary"
+                />
+                <span className="w-12 text-right text-primary">{Math.round(noiseReductionAmount * 100)}%</span>
+              </div>
+            </label>
+            <label className="mt-2 block font-label-mono-sm text-label-mono-sm text-on-surface-variant uppercase">
+              Floor
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="range"
+                  min={0}
+                  max={0.6}
+                  step={0.02}
+                  value={noiseReductionFloor}
+                  disabled={reducing}
+                  onChange={(e) => setNoiseReductionFloor(Number(e.target.value))}
+                  className="flex-1 accent-primary"
+                />
+                <span className="w-12 text-right text-primary">{Math.round(noiseReductionFloor * 100)}%</span>
+              </div>
+            </label>
+          </div>
+        )}
+
+        <div className="flex gap-2 mt-3">
+          <button
+            onClick={applyNoiseReduction}
+            disabled={!noisePrint || reducing}
+            className="flex-1 rounded bg-secondary px-2 py-1.5 font-label-mono-sm text-label-mono-sm text-background uppercase tracking-widest hover:opacity-90 disabled:opacity-40"
+          >
+            {reducing ? `Reducing ${Math.round(noiseReductionProgress * 100)}%` : 'Reduce'}
+          </button>
+          <button
+            onClick={restoreOriginalAudio}
+            disabled={!noiseReductionApplied || reducing}
+            className="rounded border border-secondary/50 px-2 py-1.5 font-label-mono-sm text-label-mono-sm text-secondary uppercase tracking-widest hover:bg-secondary/10 disabled:opacity-40"
+          >
+            Restore
+          </button>
+        </div>
+      </div>
+
       <div className="flex gap-2 mt-3">
         <button
           onClick={findQuietNoiseRange}
@@ -176,6 +275,9 @@ export default function NoisePrintPanel() {
 
       {noisePrintError && (
         <p className="mt-2 font-label-mono-sm text-label-mono-sm text-error">{noisePrintError}</p>
+      )}
+      {noiseReductionError && (
+        <p className="mt-2 font-label-mono-sm text-label-mono-sm text-error">{noiseReductionError}</p>
       )}
     </div>
   );
